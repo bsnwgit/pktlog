@@ -1,0 +1,181 @@
+"""
+Application log viewer endpoints.
+
+GET  /api/logs          — query recent log records (filterable)
+GET  /api/logs/stats    — count by level + distinct logger names
+DELETE /api/logs        — clear all log records (admin only)
+POST /api/logs/level    — change the live capture level (admin only)
+"""
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+import aiosqlite
+from fastapi import APIRouter, Depends, Query
+
+from app.config import get_settings
+from app.dependencies import require_admin, get_current_user
+
+log = logging.getLogger("pktlog.api.logs")
+router = APIRouter()
+
+_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+_LEVEL_NOS = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+
+
+# ── Query logs ────────────────────────────────────────────────────────────────
+
+@router.get("", dependencies=[Depends(get_current_user)])
+async def get_logs(
+    level: Optional[str] = Query(None, description="Minimum level: DEBUG|INFO|WARNING|ERROR|CRITICAL"),
+    logger: Optional[str] = Query(None, description="Filter by logger name prefix, e.g. pktlog.ingest"),
+    search: Optional[str] = Query(None, description="Substring search in message"),
+    since: Optional[str] = Query(None, description="ISO-8601 timestamp — only return records after this"),
+    limit: int = Query(200, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    cfg = get_settings()
+
+    # Build WHERE clauses
+    conditions: list[str] = []
+    params: list = []
+
+    if level and level.upper() in _VALID_LEVELS:
+        conditions.append("level_no >= ?")
+        params.append(_LEVEL_NOS[level.upper()])
+
+    if logger:
+        conditions.append("logger LIKE ?")
+        params.append(f"{logger}%")
+
+    if search:
+        conditions.append("message LIKE ?")
+        params.append(f"%{search}%")
+
+    if since:
+        conditions.append("ts > ?")
+        params.append(since)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    async with aiosqlite.connect(cfg.db_path) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Total count for pagination
+        async with db.execute(
+            f"SELECT COUNT(*) FROM app_logs {where}", params
+        ) as cur:
+            total = (await cur.fetchone())[0]
+
+        # Fetch rows newest-first
+        async with db.execute(
+            f"""
+            SELECT id, ts, level, level_no, logger, message, exc_info
+            FROM app_logs
+            {where}
+            ORDER BY id DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [limit, offset],
+        ) as cur:
+            rows = await cur.fetchall()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "records": [
+            {
+                "id":       r["id"],
+                "ts":       r["ts"],
+                "level":    r["level"],
+                "level_no": r["level_no"],
+                "logger":   r["logger"],
+                "message":  r["message"],
+                "exc_info": r["exc_info"],
+            }
+            for r in rows
+        ],
+    }
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+@router.get("/stats", dependencies=[Depends(get_current_user)])
+async def get_log_stats() -> dict:
+    """Return count per level and the distinct logger names seen."""
+    cfg = get_settings()
+
+    async with aiosqlite.connect(cfg.db_path) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT level, COUNT(*) as cnt FROM app_logs GROUP BY level ORDER BY level_no DESC"
+        ) as cur:
+            by_level = {r["level"]: r["cnt"] for r in await cur.fetchall()}
+
+        async with db.execute(
+            "SELECT DISTINCT logger FROM app_logs ORDER BY logger"
+        ) as cur:
+            loggers = [r["logger"] for r in await cur.fetchall()]
+
+        async with db.execute("SELECT COUNT(*) FROM app_logs") as cur:
+            total = (await cur.fetchone())[0]
+
+        async with db.execute(
+            "SELECT ts FROM app_logs ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+            latest_ts = row["ts"] if row else None
+
+    return {
+        "total": total,
+        "by_level": by_level,
+        "loggers": loggers,
+        "latest_ts": latest_ts,
+    }
+
+
+# ── Clear logs ────────────────────────────────────────────────────────────────
+
+@router.delete("", dependencies=[Depends(require_admin)])
+async def clear_logs() -> dict:
+    """Delete all log records. Admin only."""
+    cfg = get_settings()
+    async with aiosqlite.connect(cfg.db_path) as db:
+        await db.execute("DELETE FROM app_logs")
+        await db.commit()
+    log.info("App logs cleared by admin")
+    return {"status": "cleared"}
+
+
+# ── Live level change ─────────────────────────────────────────────────────────
+
+@router.post("/level", dependencies=[Depends(require_admin)])
+async def set_log_level(level: str) -> dict:
+    """
+    Change the minimum captured log level at runtime.
+    Use 'DEBUG' for deep troubleshooting, reset to 'WARNING' when done.
+    """
+    level = level.upper()
+    if level not in _VALID_LEVELS:
+        from fastapi import HTTPException
+        raise HTTPException(400, f"Invalid level '{level}'. Must be one of {sorted(_VALID_LEVELS)}")
+
+    # Reach into the singleton handler if it's been registered
+    try:
+        from app.logging_handler import SQLiteLogHandler
+        root_logger = logging.getLogger("pktlog")
+        for h in root_logger.handlers:
+            if isinstance(h, SQLiteLogHandler):
+                h.set_capture_level(logging.getLevelName(level))
+                break
+        else:
+            # Handler not found — just set the logger level directly
+            root_logger.setLevel(logging.getLevelName(level))
+    except Exception as e:
+        log.warning(f"set_log_level: {e}")
+
+    log.info(f"Log capture level changed to {level}")
+    return {"status": "ok", "level": level}
