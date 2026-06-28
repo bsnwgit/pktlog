@@ -1,0 +1,41 @@
+[Unit]
+Description=pktLog Syslog Management Platform
+Documentation=https://github.com/barsoftnetware/pktlog
+After=network.target
+# Uncomment if using ClickHouse backend:
+# Requires=clickhouse-server.service
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/mnt/software/pktlog
+
+# Config
+Environment=PKTLOG_CONFIG=/mnt/software/pktlog/config.yaml
+
+# Launch FastAPI via Uvicorn
+# --workers 2 is safe for a single EC2; increase if CPU allows
+ExecStart=/mnt/software/pktlog/venv/bin/uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8768 \
+    --workers 2 \
+    --log-level info \
+    --no-access-log
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Logging
+StandardOutput=append:/mnt/software/logs/pktlog.log
+StandardError=append:/mnt/software/logs/pktlog.log
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

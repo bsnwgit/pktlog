@@ -1,0 +1,36 @@
+# pktLog configuration
+# Copy to config.yaml alongside the app, or set PKTLOG_CONFIG=/path/to/config.yaml
+#
+# Most runtime settings (storage backend, retention, notifications, etc.) are
+# managed via the Settings page in the UI and stored in SQLite.
+# This file only covers infrastructure/startup settings.
+
+# ── Server ────────────────────────────────────────────────────────────────────
+host: "0.0.0.0"
+port: 8768
+workers: 2
+debug: false
+
+# ── SQLite app database ────────────────────────────────────────────────────────
+db_path: "/mnt/software/pktlog/pktlog.db"
+
+# ── ClickHouse ────────────────────────────────────────────────────────────────
+clickhouse_host: "localhost"
+clickhouse_port: 9000
+clickhouse_database: "pktlog"
+clickhouse_user: "default"
+clickhouse_password: ""
+
+# ── DuckDB (only if using DuckDB backend) ─────────────────────────────────────
+duckdb_path: "/mnt/software/pktlog/pktlog_data.duckdb"
+
+# ── JWT (CHANGE THIS in production — generate with: openssl rand -hex 32) ────
+secret_key: "CHANGE_ME_generate_with_openssl_rand_hex_32"
+
+# ── CORS (restrict to your actual origin in production) ──────────────────────
+cors_origins:
+  - "http://10.20.30.5:8768"
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+log_level: "info"
+log_file: "/mnt/software/logs/pktlog.log"
