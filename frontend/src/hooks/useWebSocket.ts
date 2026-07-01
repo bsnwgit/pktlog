@@ -7,7 +7,6 @@
  */
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { getToken } from '../api/client'
-import type { DeviceSummary, FlowRecord } from '../api/client'
 
 // ── Message types ──────────────────────────────────────────────────────────────
 
@@ -28,9 +27,7 @@ export interface AlertFiredPayload {
 }
 
 export type WsMessage =
-  | { type: 'device_update'; data: DeviceSummary[] }
   | { type: 'ingest_stats';  data: IngestStats }
-  | { type: 'flow_update';   data: FlowRecord[]; total: number }
   | { type: 'alert_fired';   data: AlertFiredPayload }
   | { type: 'ping' }
 
