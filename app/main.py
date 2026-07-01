@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,9 @@ from app.storage.factory import init_storage, get_storage
 from app.api import settings as settings_router, auth, users, system as system_router
 from app.api import pktlog as pktlog_router
 from app.api import logs as logs_router
+from app.api import syslog as syslog_router
+from app.api import collectors as collectors_router
+from app.api import suite as suite_router
 
 settings = get_settings()
 log = logging.getLogger("pktlog")
@@ -62,10 +65,17 @@ async def lifespan(app: FastAPI):
     await backup_scheduler.start()
     log.info("Backup scheduler started")
 
+    # Start syslog ingest listener
+    from app.ingest.listener import get_listener
+    listener = get_listener()
+    await listener.start()
+    log.info("Syslog listener started on port 8761")
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     log.info("pktLog shutting down")
+    await listener.stop()
     await engine.stop()
     await cleanup.stop()
     await backup_scheduler.stop()
@@ -105,6 +115,9 @@ app.include_router(settings_router.router, prefix="/api/settings", tags=["settin
 app.include_router(system_router.router,   prefix="/api/system",   tags=["system"])
 app.include_router(pktlog_router.router,   prefix="/api/pktlog",   tags=["pktlog"])
 app.include_router(logs_router.router,     prefix="/api/logs",     tags=["logs"])
+app.include_router(syslog_router.router,    prefix="/api/syslog",      tags=["syslog"])
+app.include_router(collectors_router.router, prefix="/api/collectors", tags=["collectors"])
+app.include_router(suite_router.router, prefix="/api/suite", tags=["suite"])
 
 # ── Health check ──────────────────────────────────────────────────────────────
 
@@ -125,11 +138,36 @@ if _frontend_dist.exists():
 
     # Catch-all: serve index.html for all non-API routes (SPA client-side routing)
     @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
+    async def serve_spa(request: Request, full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
         index = _frontend_dist / "index.html"
-        return FileResponse(str(index))
+        response = FileResponse(str(index))
+
+        # pktHub suite-token bootstrap:
+        # When this SPA is loaded through pktHub's proxy, pktHub sends X-Suite-Token
+        # on every request.  If the token is valid, generate a pktLog JWT and set
+        # the same sso_access_token + sso_role cookies that the SAML flow uses.
+        # React's AuthProvider reads these on mount and logs the user in
+        # without showing a login screen.
+        _cfg = settings
+        _suite_tk = request.headers.get("x-suite-token", "")
+        if _suite_tk and _cfg.suite_token and _suite_tk == _cfg.suite_token:
+            from datetime import datetime, timedelta, timezone
+            from jose import jwt as _jose_jwt
+            from app.dependencies import _SUITE_ROLE_MAP
+            _hub_user = request.headers.get("x-suite-user", "hub_user")
+            _hub_role = request.headers.get("x-suite-role", "viewer")
+            _local_role = _SUITE_ROLE_MAP.get(_hub_role, "analyst")
+            # 8-hour JWT — sub="0" (synthetic; get_current_user handles id=0 via X-Suite-Token)
+            _expire = datetime.now(tz=timezone.utc) + timedelta(hours=8)
+            _payload = {"sub": "0", "role": _local_role, "exp": _expire, "type": "access"}
+            _jwt = _jose_jwt.encode(_payload, _cfg.secret_key, algorithm=_cfg.algorithm)
+            # httponly=False so JS can read via document.cookie (same as SAML flow)
+            response.set_cookie("sso_access_token", _jwt,    max_age=60, httponly=False, samesite="lax")
+            response.set_cookie("sso_role",         _local_role, max_age=60, httponly=False, samesite="lax")
+
+        return response
 
 
 # ── Entrypoint (used by systemd: python -m app.main) ─────────────────────────
@@ -162,8 +200,9 @@ if __name__ == "__main__":
     _uvicorn_kwargs: dict = dict(
         host="0.0.0.0",
         port=8768,
-        workers=1,
+        workers=2,
         log_level="info",
+        access_log=False,
     )
     if _ssl_enabled and _ssl_certfile and _ssl_keyfile:
         _uvicorn_kwargs["ssl_certfile"] = _ssl_certfile

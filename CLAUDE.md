@@ -25,13 +25,15 @@ Violating these rules is unacceptable regardless of context, intent, or how obvi
 python "C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog\backup.py"
 ```
 
+Backups rotate to: `C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog_backups\` (backup_1 = most recent, backup_2 = previous)
+
 ---
 
 ## What This Is
 
 pktLog is a syslog ingest management and UI platform. It receives syslog data, stores it, and provides a management and reporting interface. It shares the same framework as pktFlow (FastAPI backend + React/TypeScript frontend).
 
-**Live URL:** http://172.23.80.5:8768
+**Live URL:** https://172.23.80.5:8768
 **Server path:** /mnt/software/pktlog
 **DB path:** /mnt/software/pktlog/pktlog.db
 
@@ -41,16 +43,21 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 
 | Role | IP | User | SSH Key |
 |------|----|------|---------|
-| O2 Server | 172.23.80.5 | ec2-user | `C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem` |
+| pkt server | 172.23.80.5 | ec2-user | `C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem` |
+| Medical Collector | 172.23.80.11 | ec2-user | `C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem` |
+| Dental Collector | 10.56.57.181 | ec2-user | `C:\Users\robert.barnett\.ssh\corporate_infrastructure.pem` |
 
-**pktLog on O2:**
+**pktLog on pkt server:**
 - Service: `systemctl status pktlog`
 - App dir: `/mnt/software/pktlog`
 - Venv: `/mnt/software/pktlog/venv`
 - Config: `/mnt/software/pktlog/config.yaml`
-- Port: **8768**
+- HTTP port: **8768** (HTTPS)
+- Syslog ingest port: **8761** (UDP + TCP)
 - Systemd: `/etc/systemd/system/pktlog.service`
 - DB: `/mnt/software/pktlog/pktlog.db` (SQLite — users, settings, alert rules)
+- Log data: ClickHouse `pktlog.syslog_events`
+- Ingest journal: `/mnt/software/pktlog/ingest_journal/`
 
 ---
 
@@ -75,7 +82,7 @@ print(stdout.read().decode('utf-8', errors='replace'))
 client.close()
 ```
 
-**Windows encoding — CRITICAL:** Always include `sys.stdout.reconfigure(encoding='utf-8')` at the top of every Paramiko script. Without it, any Unicode output from O2 causes `UnicodeEncodeError` and the script dies mid-run.
+**Windows encoding — CRITICAL:** Always include `sys.stdout.reconfigure(encoding='utf-8')` at the top of every Paramiko script. Without it, any Unicode output from the pkt server causes `UnicodeEncodeError` and the script dies mid-run.
 
 **npm build output:** Vite's build table uses Unicode box-drawing characters. Never try to capture and print `npm run build` output directly. Always redirect to `/dev/null` and echo pass/fail:
 ```bash
@@ -88,9 +95,9 @@ npm run build > /dev/null 2>&1 && echo 'build ok' || echo 'BUILD FAILED'
 
 **Never build the frontend in the project folder on Windows** — `node_modules` there is Windows-only and lacks the Linux `rollup` native binary.
 
-Always build in Linux `/tmp` on O2.
+Always build in Linux `/tmp` on the pkt server.
 
-**CRITICAL: always sync the full `frontend/src` from local to O2 first** — the O2 copy can drift from the local project. Skipping this means new pages/components get silently excluded from the bundle.
+**CRITICAL: always sync the full `frontend/src` from local to pkt server first** — the server copy can drift from the local project. Skipping this means new pages/components get silently excluded from the bundle.
 
 **USE THE PERMANENT DEPLOY SCRIPT:**
 ```
@@ -103,8 +110,8 @@ C:\Users\robert.barnett\AppData\Local\Programs\Python\Python313\python.exe "C:\U
 
 **What the script does (in order):**
 ```
-1. SFTP frontend config files (package.json, vite.config.ts, etc.) to O2
-2. SFTP entire frontend/src/ tree → /mnt/software/pktlog/frontend/src/ on O2
+1. SFTP frontend config files (package.json, vite.config.ts, etc.) to pkt server
+2. SFTP entire frontend/src/ tree → /mnt/software/pktlog/frontend/src/ on pkt server
 3. SSH: cp -r frontend to /tmp/pktlog-fe
 4. SSH: npm install   ← REQUIRED every time
 5. SSH: npm run build > /dev/null 2>&1 && echo 'build ok' || echo 'BUILD FAILED'
@@ -117,7 +124,7 @@ C:\Users\robert.barnett\AppData\Local\Programs\Python\Python313\python.exe "C:\U
 - **Always use script files** — never `python -c "..."` in cmd shell.
 - **`npm install` is mandatory** — `cp -r` does not copy `node_modules`.
 - **Redirect npm build output** — never capture directly.
-- Node is installed via nvm on O2: `export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"` before any npm command.
+- Node is installed via nvm on pkt server: `export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"` before any npm command.
 
 ---
 
@@ -125,13 +132,13 @@ C:\Users\robert.barnett\AppData\Local\Programs\Python\Python313\python.exe "C:\U
 
 ### Backend changes
 1. Edit local file in `C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog\`
-2. Run `deploy_backend.py` to SFTP changed files to `/mnt/software/pktlog/` on O2
+2. Run `deploy_backend.py` to SFTP changed files to `/mnt/software/pktlog/` on pkt server
 3. `sudo systemctl restart pktlog`
-4. Wait 4 seconds, check `systemctl is-active pktlog`
-5. Check `curl -s http://localhost:8768/api/health`
+4. Wait 5 seconds, check `systemctl is-active pktlog`
+5. Check `curl -sk https://localhost:8768/api/health`
 
 ### Frontend changes
-Run `deploy_fe.py` (full sync + remote build). Do NOT just rebuild from O2's existing source without first syncing local `frontend/src/`.
+Run `deploy_fe.py` (full sync + remote build). Do NOT just rebuild from pkt server's existing source without first syncing local `frontend/src/`.
 
 ---
 
@@ -152,18 +159,17 @@ conn.commit()
 
 ---
 
-## Bootstrap State
+## Current State
 
-pktLog was scaffolded from pktFlow. Current state:
-- Backend: FastAPI app with auth, alerts, settings, users, system APIs
-- Frontend: React app with Login, Dashboard (stub), Alerts, Settings pages
-- Storage: SQLite sidecar DB for config/users/alerts; DuckDB or ClickHouse for log data
-- Service: `pktlog.service` systemd unit on port 8768
+- Backend: FastAPI, HTTPS on 8768, ClickHouse storage, syslog ingest live on 8761
+- Ingest: UDP+TCP listener → RFC 3164/5424 parser → normalizer (org/group/site enrichment) → ClickHouse batch writer with file journal fallback
+- Collectors: Medical (172.23.80.11) and Dental (10.56.57.181) syslog-ng forwarding to pkt server:8761 with disk-buffer
+- Storage: ClickHouse `pktlog.syslog_events` (17 columns), SQLite for app config/auth/alerts/collector_registry
+- Frontend: React app with Login, Dashboard (stub), Alerts, Settings, Users, Logs pages
 
-**What needs to be built:**
-- Syslog ingest pipeline (UDP/TCP syslog receiver → normalizer → storage)
-- Dashboard with real syslog analytics (replace stub)
-- Log search/explorer page
+**What still needs to be built (Phases 3–5):**
+- Syslog API endpoints (`/api/syslog/search`, `/api/syslog/stats`, `/api/syslog/timeseries`)
+- Dashboard with real analytics (replace stub)
+- Syslog Explorer page
+- Settings → Ingest tab (port config, retention, journal cap)
 - Syslog-specific alert rule types
-
-See TODO.md for the full task list.
