@@ -4,10 +4,11 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 
 import { lazy, Suspense } from 'react'
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Alerts    = lazy(() => import('./pages/Alerts'))
-const Settings  = lazy(() => import('./pages/Settings'))
-const Logs      = lazy(() => import('./pages/Logs'))
+const Dashboard      = lazy(() => import('./pages/Dashboard'))
+const SyslogExplorer = lazy(() => import('./pages/SyslogExplorer'))
+const Alerts         = lazy(() => import('./pages/Alerts'))
+const Settings       = lazy(() => import('./pages/Settings'))
+const Logs           = lazy(() => import('./pages/Logs'))
 
 function PageFallback() {
   return <div className="flex items-center justify-center h-48 text-white">Loading…</div>
@@ -29,6 +30,11 @@ export default function App() {
           <Route path="/" element={
             <ProtectedRoute>
               <Suspense fallback={<PageFallback />}><Dashboard /></Suspense>
+            </ProtectedRoute>
+          } />
+          <Route path="/explorer" element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageFallback />}><SyslogExplorer /></Suspense>
             </ProtectedRoute>
           } />
           <Route path="/alerts" element={

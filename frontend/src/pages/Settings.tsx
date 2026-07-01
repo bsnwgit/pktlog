@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, DeviceSummary, User, UserIn, SslStatus } from '../api/client'
+import { api, Collector, CollectorIn, User, UserIn, SslStatus } from '../api/client'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
 
@@ -371,6 +371,100 @@ function parseIdpMetadata(xml: string): {
   }
 }
 
+
+// ── pktHub Integration component ─────────────────────────────────────────────
+function PktHubTokenDisplay() {
+  const [token, setToken]           = useState('')
+  const [revealed, setRevealed]     = useState(false)
+  const [copied, setCopied]         = useState(false)
+  const [loaded, setLoaded]         = useState(false)
+  const [regenerating, setRegen]    = useState(false)
+
+  const regenerate = async () => {
+    if (!confirm('Generate a new token?\n\nThe current token will stop working immediately.\nYou will need to re-register this app in pktHub with the new token.')) return
+    setRegen(true)
+    try {
+      const r = await fetch('/api/suite/token/regenerate', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      if (d.suite_token) { setToken(d.suite_token); setRevealed(true) }
+    } catch {}
+    setRegen(false)
+  }
+
+  useEffect(() => {
+    fetch('/api/suite/token', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { setToken(d.suite_token || ''); setLoaded(true) })
+      .catch(() => setLoaded(true))
+  }, [])
+
+  const masked = token
+    ? token.slice(0, 6) + '\u2022'.repeat(28) + token.slice(-4)
+    : ''
+
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-4 items-start py-3 border-b border-gray-800">
+        <div>
+          <p className="text-sm font-medium text-white">Suite Token</p>
+          <p className="text-xs text-gray-500 mt-0.5">Copy to pktHub when registering this app</p>
+        </div>
+        <div className="col-span-2">
+          {!loaded && <p className="text-xs text-gray-500 animate-pulse">Loading…</p>}
+          {loaded && !token && (
+            <p className="text-xs text-yellow-400">No token set — visit this page again after restarting the service.</p>
+          )}
+          {loaded && token && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs font-mono text-gray-200 break-all">
+                {revealed ? token : masked}
+              </code>
+              <button
+                onClick={() => setRevealed(v => !v)}
+                className="px-2 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 rounded-lg bg-gray-800 whitespace-nowrap"
+              >
+                {revealed ? 'Hide' : 'Reveal'}
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(token)
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 2000)
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-white rounded-lg whitespace-nowrap transition-colors"
+                style={{ background: copied ? '#16a34a' : '#2563eb' }}
+              >
+                {copied ? '\u2713 Copied' : 'Copy Token'}
+              </button>
+              <button
+                onClick={regenerate}
+                disabled={regenerating}
+                title="Generate a new token — you must re-register in pktHub after"
+                className="px-2 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 border border-red-800/60 hover:border-red-600 rounded-lg whitespace-nowrap disabled:opacity-40 transition-colors"
+              >
+                {regenerating ? '\u2026' : 'Regen'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4 items-start py-3">
+        <div>
+          <p className="text-sm font-medium text-white">How to register</p>
+        </div>
+        <div className="col-span-2 space-y-1 text-xs text-gray-400">
+          <p>1. Copy the token above.</p>
+          <p>2. In pktHub &#8594; App Manager &#8594; Register App, enter this app&#39;s URL and paste the token.</p>
+          <p>3. pktHub will open this app through its proxy with users automatically signed in.</p>
+          <p className="text-gray-500 mt-2 text-xs">&#9888; The token is permanent — it does <em>not</em> change on restart. Use <strong className="text-gray-400">Regenerate</strong> to revoke current access and issue a new token (re-register in pktHub afterwards).</p>
+        </div>
+      </div>
+    </>
+  )
+}
+// ── End pktHub Integration ────────────────────────────────────────────────────
+
+
 export default function Settings() {
   const { user: me }          = useAuth()
   const isAdmin               = me?.role === 'admin'
@@ -528,9 +622,7 @@ export default function Settings() {
   }
 
   const ingestSave  = useSave([
-    'ingest_method', 'ingest_token', 'ingest_http_port',
-    'ingest_udp_port_netflow', 'ingest_udp_port_sflow',
-    'allowed_hosts', 'ws_stream_raw_flows', 'ws_max_raw_flows',
+    'retention_days_raw', 'journal_max_gb',
   ], settings, load)
   const authSave = useSave([
     'auth_local_enabled', 'session_timeout_minutes',
@@ -820,60 +912,26 @@ export default function Settings() {
       {/* Ingest */}
       {tab === 'ingest' && (
         <Section title="Ingest" onSave={ingestSave.save} saving={ingestSave.saving} saved={ingestSave.saved} error={ingestSave.error}>
-          <Field label="Ingest method" hint="HTTP POST is recommended; requires no firewall changes">
-            <SelectInput
-              value={str('ingest_method', 'http')}
-              onChange={v => set('ingest_method', v)}
-              options={[
-                { value: 'http', label: 'HTTP POST (recommended)' },
-                { value: 'udp', label: 'Direct UDP' },
-                { value: 'both', label: 'Both' },
-              ]}
-            />
-          </Field>
-          <Field label="Ingest token" hint="Bearer token required for HTTP POST endpoint. Leave blank to show current (masked).">
-            <TextInput
-              value={str('ingest_token')}
-              onChange={v => set('ingest_token', v)}
-              placeholder="Enter new token to change…"
-              secret
-              mono
-            />
-          </Field>
-          <Field label="HTTP port" hint="Port pktLog listens on">
-            <NumberInput value={num('ingest_http_port', 8768)} onChange={v => set('ingest_http_port', v)} min={1} max={65535} />
-          </Field>
-          <Field label="UDP NetFlow port">
-            <NumberInput value={num('ingest_udp_port_netflow', 2055)} onChange={v => set('ingest_udp_port_netflow', v)} min={1} max={65535} />
-          </Field>
-          <Field label="UDP sFlow port">
-            <NumberInput value={num('ingest_udp_port_sflow', 6343)} onChange={v => set('ingest_udp_port_sflow', v)} min={1} max={65535} />
-          </Field>
-          <Field label="Allowed source IPs" hint="Comma-separated IPs or CIDRs. Empty = allow all.">
-            <TextInput
-              value={Array.isArray(settings['allowed_hosts']) ? (settings['allowed_hosts'] as string[]).join(', ') : ''}
-              onChange={v => set('allowed_hosts', v.split(',').map(s => s.trim()).filter(Boolean))}
-              placeholder="172.23.80.11, 10.56.57.181"
-              mono
-            />
-          </Field>
-
-          <div className="pt-4 pb-1">
-            <p className="text-xs font-semibold text-white uppercase tracking-wider">
-              WebSocket Live Push
-            </p>
-          </div>
-          <Field label="Stream raw flows" hint="Push each ingested flow batch over WebSocket to connected browsers. Disable if bandwidth is a concern.">
-            <Toggle value={bool('ws_stream_raw_flows')} onChange={v => set('ws_stream_raw_flows', v)} />
-          </Field>
-          {bool('ws_stream_raw_flows') && (
-            <Field label="Max flows per push" hint="Cap the number of flow records sent in each WebSocket message (1–1000)">
-              <div className="flex items-center gap-3">
-                <NumberInput value={num('ws_max_raw_flows', 100)} onChange={v => set('ws_max_raw_flows', v)} min={1} max={1000} />
-                <span className="text-sm text-white">flows</span>
+          <Field label="Syslog port" hint="UDP + TCP port pktLog listens on for incoming syslog messages. Changing requires a service restart.">
+            <div className="flex items-center gap-3">
+              <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono w-28">
+                8761
               </div>
-            </Field>
-          )}
+              <span className="text-xs text-gray-500">UDP + TCP · read-only</span>
+            </div>
+          </Field>
+          <Field label="Raw log retention" hint="How long to keep syslog events in ClickHouse before TTL expiry.">
+            <div className="flex items-center gap-3">
+              <NumberInput value={num('retention_days_raw', 90)} onChange={v => set('retention_days_raw', v)} min={1} max={3650} />
+              <span className="text-sm text-white">days</span>
+            </div>
+          </Field>
+          <Field label="Journal cap" hint="Maximum disk space for the ingest file journal (used when ClickHouse is unreachable). Oldest files are dropped when the cap is hit.">
+            <div className="flex items-center gap-3">
+              <NumberInput value={num('journal_max_gb', 5)} onChange={v => set('journal_max_gb', v)} min={1} max={500} />
+              <span className="text-sm text-white">GB</span>
+            </div>
+          </Field>
         </Section>
       )}
 
@@ -1075,8 +1133,8 @@ export default function Settings() {
         </Section>
       )}
 
-      {/* Devices tab */}
-      {tab === 'devices' && <DevicesTab />}
+      {/* Collectors tab */}
+      {tab === 'devices' && <CollectorRegistryTab />}
 
       {/* Users tab — admin only */}
       {tab === 'users' && isAdmin && <UsersTab />}
@@ -1102,8 +1160,14 @@ export default function Settings() {
             <p className="text-xs font-semibold text-white uppercase tracking-wider">SSL / TLS</p>
           </div>
           <div className="py-3">
-            <SslPanel />
+            <SslPanel sslEnabled={bool('ssl_enabled')} onToggleSSL={v => { set('ssl_enabled', v); api.bulkUpdateSettings({ ssl_enabled: v }).catch(() => {}) }} />
           </div>
+
+          {/* pktHub Integration */}
+          <div className="pt-4 pb-1">
+            <p className="text-xs font-semibold text-white uppercase tracking-wider">pktHub Integration</p>
+          </div>
+          <PktHubTokenDisplay />
         </Section>
       )}
     </div>
@@ -1152,7 +1216,7 @@ function SslDropZone({ label, accept, file, onFile, dragging, onDrag }: {
   )
 }
 
-function SslPanel() {
+function SslPanel({ sslEnabled, onToggleSSL }: { sslEnabled: boolean; onToggleSSL: (v: boolean) => void }) {
   const [status, setStatus]       = useState<SslStatus | null>(null)
   const [mode, setMode]           = useState<'pem' | 'pfx'>('pfx')
   // PEM mode
@@ -1217,6 +1281,20 @@ function SslPanel() {
 
   return (
     <div className="space-y-4">
+      {/* Enable HTTPS toggle — always visible */}
+      <div className="flex items-center justify-between bg-gray-800 border border-gray-700 rounded-xl px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-white">Enable HTTPS</p>
+          <p className="text-xs text-gray-400">Requires a certificate · restart service to apply</p>
+        </div>
+        <button
+          onClick={() => onToggleSSL(!sslEnabled)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${sslEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${sslEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
       {/* Current cert status */}
       {status?.installed ? (
         <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-2">
@@ -1315,435 +1393,196 @@ function SslPanel() {
   )
 }
 
-// ── Devices tab — managed devices + live collector stats ──────────────────────
-interface Device { id: number; ip: string; name: string; site: string; notes: string; allowed: boolean }
+// ── Collector Registry tab ────────────────────────────────────────────────────
 
-const STATUS_DOT: Record<string, string> = {
-  online: 'bg-green-400', stale: 'bg-yellow-400', offline: 'bg-red-400',
-}
-const STATUS_TEXT: Record<string, string> = {
-  online: 'text-green-400', stale: 'text-yellow-400', offline: 'text-red-400',
-}
+function CollectorRegistryTab() {
+  const [collectors, setCollectors] = useState<Collector[]>([])
+  const [editing, setEditing]       = useState<Collector | null>(null)
+  const [adding, setAdding]         = useState(false)
+  const [saving, setSaving]         = useState(false)
+  const [error, setError]           = useState('')
 
-function samplerStatus(lastSeen: string | null | undefined): 'online' | 'stale' | 'offline' {
-  if (!lastSeen) return 'offline'
-  const ago = (Date.now() - new Date(lastSeen).getTime()) / 1000
-  if (ago < 120) return 'online'
-  if (ago < 600) return 'stale'
-  return 'offline'
-}
+  const EMPTY: Partial<CollectorIn> = {
+    collector_ip: '', collector_name: '', org: 'Vyne', log_group: '', site: '', notes: '',
+  }
+  const [addForm, setAddForm] = useState<Partial<CollectorIn>>(EMPTY)
 
-function fmtDevBytes(b: number): string {
-  if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB'
-  if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB'
-  if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB'
-  return b + ' B'
-}
-
-function fmtRelative(ts: string | null | undefined): string {
-  if (!ts) return '—'
-  const secs = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
-  if (secs < 60) return `${secs}s ago`
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
-  return `${Math.floor(secs / 86400)}d ago`
-}
-
-function DevicesTab() {
-  const [devices, setDevices]     = useState<Device[]>([])
-  const [summaries, setSummaries] = useState<DeviceSummary[]>([])
-  const [editing, setEditing]     = useState<Device | null>(null)
-  const [adding, setAdding]       = useState(false)
-  const [saving, setSaving]       = useState(false)
-  const [error, setError]         = useState('')
-  const [csvImporting, setCsvImporting] = useState(false)
-  const [csvResult, setCsvResult]       = useState<{ created: number; updated: number; skipped: number; errors: Array<{ row: number; reason: string }> } | null>(null)
-  const [csvError, setCsvError]         = useState<string | null>(null)
-  const [deviceFilter, setDeviceFilter] = useState('')
-  const [unknownSamplers, setUnknownSamplers] = useState<Array<{ sampler_ip: string; flows_per_sec: number; last_seen: string }>>([])
-  const [dismissedSamplers, setDismissedSamplers] = useState<Array<{ sampler_ip: string; dismissed_at: string }>>([])
-  const [knownSites, setKnownSites] = useState<string[]>([])
-  const [registeringIp, setRegisteringIp] = useState<string | null>(null)
-  const [dismissedExpanded, setDismissedExpanded] = useState(false)
-
-  const EMPTY: Device = { id: 0, ip: '', name: '', site: '', notes: '', allowed: true }
-
-  const loadDevices   = async () => { try { setDevices(await api.getDevices()) } catch {} }
-  const loadSummaries = async () => { try { setSummaries(await api.getDeviceSummaries()) } catch {} }
-  const loadUnknown   = async () => {
-    try {
-      const [data, sites] = await Promise.all([api.getUnknownSamplers(), api.getDeviceSites()])
-      setUnknownSamplers(data.unknown)
-      setDismissedSamplers(data.dismissed)
-      setKnownSites(sites)
-    } catch {}
+  const load = async () => {
+    try { setCollectors(await api.getCollectors()) } catch {}
   }
 
-  useEffect(() => {
-    loadDevices()
-    loadSummaries()
-    loadUnknown()
-    const t1 = setInterval(loadSummaries, 15_000)
-    // Refresh device list + unknown samplers every 30s (new registrations, dismissals from another session)
-    const t2 = setInterval(() => { loadDevices(); loadUnknown() }, 30_000)
-    return () => { clearInterval(t1); clearInterval(t2) }
-  }, [])
+  useEffect(() => { load() }, [])
 
-  const save = async (d: Device) => {
-    setSaving(true)
-    setError('')
+  const saveEdit = async (c: Collector) => {
+    setSaving(true); setError('')
     try {
-      const body = { ip: d.ip, name: d.name, site: d.site, notes: d.notes, allowed: d.allowed }
-      if (d.id) {
-        await api.updateDevice(d.id, body)
-      } else {
-        await api.createDevice(body)
-      }
+      await api.updateCollector(c.collector_ip, {
+        collector_name: c.collector_name, org: c.org,
+        log_group: c.log_group, site: c.site, notes: c.notes,
+      })
       setEditing(null)
-      setAdding(false)
-      await loadDevices()
-    } catch (e: any) {
-      setError(e.message || 'Failed to save')
-    } finally {
-      setSaving(false)
-    }
+      await load()
+    } catch (e: any) { setError(e.message || 'Save failed') }
+    finally { setSaving(false) }
   }
 
-  const del = async (id: number) => {
-    if (!confirm('Remove this device?')) return
-    await api.deleteDevice(id)
-    await loadDevices()
-  }
-
-  const dismiss = async (ip: string) => {
-    try { await api.dismissSampler(ip); await loadUnknown() } catch {}
-  }
-  const reconsider = async (ip: string) => {
-    try { await api.undismissSampler(ip); await loadUnknown() } catch {}
-  }
-
-  // Inline registration form for unknown samplers
-  const InlineRegisterForm = ({ ip, onSaved, onCancel }: { ip: string; onSaved: () => void; onCancel: () => void }) => {
-    const [name, setName] = useState('')
-    const [site, setSite] = useState(knownSites[0] || '')
-    const [customSite, setCustomSite] = useState('')
-    const [saving, setSaving] = useState(false)
-    const [err, setErr] = useState('')
-    const effectiveSite = site === '__custom__' ? customSite : site
-    const submit = async () => {
-      setSaving(true); setErr('')
-      try {
-        await api.createDevice({ ip, name, site: effectiveSite, notes: '', allowed: true })
-        await loadDevices()
-        onSaved()
-      } catch (e: any) { setErr(e.message || 'Failed to register') }
-      finally { setSaving(false) }
-    }
-    return (
-      <div className="mt-3 space-y-3 border-t border-gray-700 pt-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Core Router"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Site</label>
-            {knownSites.length > 0 ? (
-              <select value={site} onChange={e => setSite(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
-                {knownSites.map(s => <option key={s} value={s}>{s}</option>)}
-                <option value="__custom__">Custom…</option>
-              </select>
-            ) : (
-              <input value={customSite} onChange={e => setCustomSite(e.target.value)} placeholder="site name"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
-            )}
-            {site === '__custom__' && (
-              <input value={customSite} onChange={e => setCustomSite(e.target.value)} placeholder="site name" className="mt-1 w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
-            )}
-          </div>
-        </div>
-        {err && <p className="text-xs text-red-400">{err}</p>}
-        <div className="flex gap-2">
-          <button onClick={submit} disabled={saving}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs rounded px-3 py-1.5 transition-colors">
-            {saving ? 'Saving…' : 'Register'}
-          </button>
-          <button onClick={onCancel}
-            className="text-xs border border-gray-700 text-gray-400 hover:text-white rounded px-3 py-1.5 transition-colors">
-            Cancel
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    setCsvImporting(true)
-    setCsvResult(null)
-    setCsvError(null)
+  const saveAdd = async () => {
+    if (!addForm.collector_ip) { setError('IP is required'); return }
+    setSaving(true); setError('')
     try {
-      const result = await api.importDevicesCsv(file)
-      setCsvResult(result)
-      await loadDevices()
-    } catch (err: any) {
-      setCsvError(err.message || 'Import failed')
-    } finally {
-      setCsvImporting(false)
-    }
+      await api.createCollector(addForm as CollectorIn)
+      setAdding(false)
+      setAddForm(EMPTY)
+      await load()
+    } catch (e: any) { setError(e.message || 'Save failed') }
+    finally { setSaving(false) }
   }
 
-  const downloadTemplate = () => {
-    const csv = 'ip,name,site,notes,allowed\n192.168.1.1,Core Switch,medical,Main distribution switch,true\n10.0.0.1,Edge Router,dental,,true\n'
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'devices-template.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+  const del = async (ip: string) => {
+    if (!confirm(`Remove collector ${ip}?`)) return
+    try { await api.deleteCollector(ip); await load() } catch {}
   }
 
-  // Join: managed devices + live summaries keyed by IP
-  const summaryMap = Object.fromEntries(summaries.map(s => [s.sampler_ip, s]))
-
-  const DeviceForm = ({ d }: { d: Device }) => {
-    const [form, setForm] = useState<Device>(d)
-    const f = <K extends keyof Device>(k: K, v: Device[K]) => setForm(x => ({ ...x, [k]: v }))
-    return (
-      <tr>
-        <td colSpan={8} className="px-4 py-4 bg-gray-800/50">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-            {([['IP', 'ip', '192.168.1.1'], ['Name', 'name', 'Core Switch'], ['Site', 'site', 'medical']] as const).map(([label, key, ph]) => (
-              <div key={key}>
-                <label className="block text-xs text-white mb-1">{label}</label>
-                <input
-                  value={form[key] as string}
-                  onChange={e => f(key, e.target.value)}
-                  placeholder={ph}
-                  className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            ))}
-            <div className="flex items-end gap-4">
-              <div>
-                <label className="block text-xs text-white mb-1">Allowed</label>
-                <Toggle value={form.allowed} onChange={v => f('allowed', v)} />
-              </div>
-            </div>
-          </div>
-          <div className="mb-3">
-            <label className="block text-xs text-white mb-1">Notes</label>
-            <input
-              value={form.notes}
-              onChange={e => f('notes', e.target.value)}
-              placeholder="Optional notes"
-              className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
-          <div className="flex gap-2">
-            <button onClick={() => save(form)} disabled={saving} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs rounded px-3 py-1.5">
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button onClick={() => { setEditing(null); setAdding(false) }} className="text-white hover:text-white text-xs border border-gray-700 rounded px-3 py-1.5">
-              Cancel
-            </button>
-          </div>
-        </td>
-      </tr>
-    )
-  }
+  const InputCls = 'w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500'
 
   return (
     <div>
-      {/* Unknown Samplers Panel */}
-      {(unknownSamplers.length > 0 || dismissedSamplers.length > 0) && (
-        <div className="mb-4 bg-gray-900 border border-amber-800/40 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block animate-pulse" />
-            <p className="text-sm font-medium text-white">Unknown samplers</p>
-            {unknownSamplers.length > 0 && (
-              <span className="text-xs bg-amber-900/30 text-amber-400 border border-amber-700/40 rounded px-1.5 py-0.5">
-                {unknownSamplers.length} need{unknownSamplers.length === 1 ? 's' : ''} review
-              </span>
-            )}
-          </div>
-
-          {unknownSamplers.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-gray-400">All active samplers are registered or dismissed.</p>
-          ) : (
-            <div className="divide-y divide-gray-800/50">
-              {unknownSamplers.map(s => (
-                <div key={s.sampler_ip} className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-mono text-white">{s.sampler_ip}</p>
-                      <p className="text-xs text-gray-400">
-                        {s.flows_per_sec.toFixed(1)} flows/s · last seen {fmtRelative(s.last_seen)}
-                      </p>
-                    </div>
-                    {registeringIp !== s.sampler_ip && (
-                      <div className="flex gap-2 flex-shrink-0">
-                        <button onClick={() => setRegisteringIp(s.sampler_ip)}
-                          className="text-xs bg-blue-600 hover:bg-blue-500 text-white rounded px-3 py-1.5 transition-colors">
-                          Register
-                        </button>
-                        <button onClick={() => dismiss(s.sampler_ip)}
-                          className="text-xs border border-gray-700 text-gray-400 hover:text-white rounded px-3 py-1.5 transition-colors">
-                          Dismiss
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {registeringIp === s.sampler_ip && (
-                    <InlineRegisterForm
-                      ip={s.sampler_ip}
-                      onSaved={async () => { setRegisteringIp(null); await loadUnknown() }}
-                      onCancel={() => setRegisteringIp(null)}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {dismissedSamplers.length > 0 && (
-            <div className="border-t border-gray-800">
-              <button
-                onClick={() => setDismissedExpanded(!dismissedExpanded)}
-                className="w-full px-4 py-2 flex items-center justify-between text-xs text-gray-500 hover:text-gray-300 transition-colors"
-              >
-                <span>Dismissed ({dismissedSamplers.length})</span>
-                <span>{dismissedExpanded ? '▲' : '▼'}</span>
-              </button>
-              {dismissedExpanded && (
-                <div className="divide-y divide-gray-800/50 border-t border-gray-800">
-                  {dismissedSamplers.map(s => (
-                    <div key={s.sampler_ip} className="px-4 py-2 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-mono text-gray-400">{s.sampler_ip}</p>
-                        <p className="text-xs text-gray-500">dismissed {fmtRelative(s.dismissed_at)}</p>
-                      </div>
-                      <button onClick={() => reconsider(s.sampler_ip)}
-                        className="text-xs text-gray-400 hover:text-white transition-colors">
-                        Reconsider
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <p className="text-xs text-gray-500">Live stats refresh every 15s</p>
-        <div className="flex items-center gap-2">
-          <input
-            value={deviceFilter}
-            onChange={e => setDeviceFilter(e.target.value)}
-            placeholder="Filter devices…"
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-600 w-40 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          {deviceFilter && <button onClick={() => setDeviceFilter('')} className="text-xs text-white hover:text-white">✕</button>}
-          <button onClick={downloadTemplate} className="text-xs text-white hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg px-3 py-2 transition-colors">
-            Download template
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-500">
+          Maps collector IPs to names and the org/group/site hierarchy used for log enrichment.
+        </p>
+        {!adding && (
+          <button onClick={() => { setAdding(true); setEditing(null); setError('') }}
+            className="bg-blue-600 hover:bg-blue-500 text-white text-xs rounded-lg px-4 py-2 transition-colors">
+            + Add collector
           </button>
-          <label className={`text-xs rounded-lg px-3 py-2 transition-colors cursor-pointer border ${csvImporting ? 'opacity-50 cursor-not-allowed border-gray-700 text-gray-500' : 'border-gray-700 text-white hover:border-gray-500 hover:text-white'}`}>
-            {csvImporting ? 'Importing…' : 'Import CSV'}
-            <input type="file" accept=".csv" className="hidden" onChange={handleCsvImport} disabled={csvImporting} />
-          </label>
-          <button onClick={() => { setAdding(true); setEditing(null) }} className="bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg px-4 py-2">
-            + Add device
-          </button>
-        </div>
+        )}
       </div>
-      {csvResult && (
-        <div className="mb-3 text-xs rounded-lg border border-gray-700 bg-gray-800/50 px-4 py-3 space-y-1">
-          <p className="text-white font-medium">Import complete</p>
-          <p className="text-white">
-            <span className="text-green-400">{csvResult.created} created</span>
-            {' · '}
-            <span className="text-blue-400">{csvResult.updated} updated</span>
-            {csvResult.skipped > 0 && <><span className="text-white"> · </span><span className="text-amber-400">{csvResult.skipped} skipped</span></>}
-          </p>
-          {csvResult.errors.length > 0 && (
-            <div className="mt-1 space-y-0.5">
-              {csvResult.errors.map((e, i) => (
-                <p key={i} className="text-red-400">Row {e.row}: {e.reason}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {csvError && (
-        <p className="mb-3 text-xs text-red-400 px-1">{csvError}</p>
-      )}
+
+      {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
+
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-800">
-              <th className="px-4 py-3 w-6"></th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-white">Device</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-white">Site</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-white">Status</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-white">Flows/s</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-white">Bytes/hr</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-white">Ingest</th>
+            <tr className="border-b border-gray-800 text-xs text-gray-500">
+              <th className="px-4 py-3 text-left font-medium">IP</th>
+              <th className="px-4 py-3 text-left font-medium">Name</th>
+              <th className="px-4 py-3 text-left font-medium">Org</th>
+              <th className="px-4 py-3 text-left font-medium">Log Group</th>
+              <th className="px-4 py-3 text-left font-medium">Site</th>
+              <th className="px-4 py-3 text-left font-medium">Enabled</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {adding && <DeviceForm d={EMPTY} />}
-            {(deviceFilter.trim()
-              ? devices.filter(d => {
-                  const q = deviceFilter.toLowerCase()
-                  return d.ip.includes(q) || d.name.toLowerCase().includes(q) || d.site.toLowerCase().includes(q)
-                })
-              : devices
-            ).map(d => {
-              const s = summaryMap[d.ip]
-              const status = samplerStatus(s?.last_seen)
-              return editing?.id === d.id ? (
-                <DeviceForm key={`edit-${d.id}`} d={d} />
-              ) : (
-                <tr key={d.id} className="hover:bg-gray-800/30 transition-colors">
-                  <td className="px-4 py-3">
-                    <span className={`w-2 h-2 rounded-full inline-block ${STATUS_DOT[status]}`} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="text-white font-medium">{d.name || d.ip}</p>
-                    <p className="text-xs font-mono text-blue-300">{d.ip}</p>
-                  </td>
-                  <td className="px-4 py-3 text-white text-sm">{d.site || '—'}</td>
-                  <td className={`px-4 py-3 capitalize text-xs font-medium ${STATUS_TEXT[status]}`}>{status}</td>
-                  <td className="px-4 py-3 text-right font-mono text-white text-xs">{s ? s.flows_per_sec.toFixed(1) : '—'}</td>
-                  <td className="px-4 py-3 text-right font-mono text-white text-xs">{s ? fmtDevBytes(s.bytes_last_hour) : '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded ${d.allowed ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                      {d.allowed ? 'Allowed' : 'Blocked'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-3">
-                      <button onClick={() => { setEditing(d); setAdding(false) }} className="text-xs text-white hover:text-blue-400 transition-colors">Edit</button>
-                      <button onClick={() => del(d.id)} className="text-xs text-white hover:text-red-400 transition-colors">Remove</button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-            {devices.length === 0 && !adding && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-white">No devices yet</td>
+            {/* Add row */}
+            {adding && (
+              <tr className="bg-gray-800/40">
+                <td className="px-3 py-2">
+                  <input value={addForm.collector_ip ?? ''} onChange={e => setAddForm(f => ({ ...f, collector_ip: e.target.value }))}
+                    placeholder="10.0.0.1" className={InputCls + ' font-mono'} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={addForm.collector_name ?? ''} onChange={e => setAddForm(f => ({ ...f, collector_name: e.target.value }))}
+                    placeholder="collector name" className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={addForm.org ?? ''} onChange={e => setAddForm(f => ({ ...f, org: e.target.value }))}
+                    placeholder="Vyne" className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={addForm.log_group ?? ''} onChange={e => setAddForm(f => ({ ...f, log_group: e.target.value }))}
+                    placeholder="Medical" className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={addForm.site ?? ''} onChange={e => setAddForm(f => ({ ...f, site: e.target.value }))}
+                    placeholder="optional" className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <Toggle value={addForm.enabled ?? true} onChange={v => setAddForm(f => ({ ...f, enabled: v }))} />
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-2">
+                    <button onClick={saveAdd} disabled={saving}
+                      className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded px-3 py-1.5 transition-colors">
+                      {saving ? 'Saving…' : 'Add'}
+                    </button>
+                    <button onClick={() => { setAdding(false); setAddForm(EMPTY); setError('') }}
+                      className="text-xs border border-gray-700 text-gray-400 hover:text-white rounded px-3 py-1.5 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </td>
               </tr>
             )}
+
+            {collectors.length === 0 && !adding && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-600">
+                  No collectors registered
+                </td>
+              </tr>
+            )}
+
+            {collectors.map(c => editing?.collector_ip === c.collector_ip ? (
+              <tr key={c.collector_ip} className="bg-gray-800/40">
+                <td className="px-3 py-2">
+                  <p className="text-xs font-mono text-gray-400 px-2">{c.collector_ip}</p>
+                </td>
+                <td className="px-3 py-2">
+                  <input value={editing.collector_name} onChange={e => setEditing({ ...editing, collector_name: e.target.value })}
+                    className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={editing.org} onChange={e => setEditing({ ...editing, org: e.target.value })}
+                    className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={editing.log_group} onChange={e => setEditing({ ...editing, log_group: e.target.value })}
+                    className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <input value={editing.site} onChange={e => setEditing({ ...editing, site: e.target.value })}
+                    className={InputCls} />
+                </td>
+                <td className="px-3 py-2">
+                  <Toggle value={!!editing.enabled} onChange={v => setEditing({ ...editing, enabled: v ? 1 : 0 })} />
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-2">
+                    <button onClick={() => saveEdit(editing)} disabled={saving}
+                      className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded px-3 py-1.5 transition-colors">
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => { setEditing(null); setError('') }}
+                      className="text-xs border border-gray-700 text-gray-400 hover:text-white rounded px-3 py-1.5 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              <tr key={c.collector_ip} className="hover:bg-gray-800/30 transition-colors">
+                <td className="px-4 py-3 font-mono text-xs text-blue-300">{c.collector_ip}</td>
+                <td className="px-4 py-3 text-sm text-white">{c.collector_name || '—'}</td>
+                <td className="px-4 py-3 text-sm text-gray-300">{c.org || '—'}</td>
+                <td className="px-4 py-3 text-sm text-gray-300">{c.log_group || '—'}</td>
+                <td className="px-4 py-3 text-sm text-gray-300">{c.site || '—'}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-2 py-0.5 rounded ${c.enabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {c.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-3">
+                    <button onClick={() => { setEditing({ ...c }); setAdding(false); setError('') }}
+                      className="text-xs text-gray-400 hover:text-blue-400 transition-colors">Edit</button>
+                    <button onClick={() => del(c.collector_ip)}
+                      className="text-xs text-gray-400 hover:text-red-400 transition-colors">Remove</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
