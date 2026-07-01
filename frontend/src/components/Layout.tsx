@@ -72,6 +72,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
 const NAV = [
   { to: '/',         label: 'Dashboard', icon: '◑', adminOnly: false },
+  { to: '/explorer', label: 'Explorer',  icon: '⊞', adminOnly: false },
   { to: '/alerts',   label: 'Alerts',    icon: '△', adminOnly: false },
   { to: '/logs',     label: 'Logs',      icon: '≡', adminOnly: false },
   { to: '/settings', label: 'Settings',  icon: '⚙', adminOnly: false },
