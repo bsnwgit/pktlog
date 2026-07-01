@@ -14,7 +14,7 @@ log = logging.getLogger("pktlog.storage")
 _instance: Optional[StorageBackend] = None
 
 
-async def init_storage(backend: str = "duckdb") -> None:
+async def init_storage(backend: str = "clickhouse") -> None:
     """Called on app startup. Backend can be overridden by runtime settings."""
     global _instance
 

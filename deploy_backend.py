@@ -12,38 +12,62 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect('172.23.80.5', username='ec2-user', pkey=key, timeout=15, banner_timeout=15)
 print('Connected')
 
+# Ensure remote directories exist before SFTPing
+def run(label, cmd):
+    _, stdout, stderr = client.exec_command(cmd, timeout=30)
+    stdout.channel.recv_exit_status()
+    out = stdout.read().decode('utf-8', errors='replace').strip()
+    err = stderr.read().decode('utf-8', errors='replace').strip()
+    print(f'[{label}] {out or ""} {("ERR:"+err[:200]) if err else ""}')
+
+run('mkdir-ingest',  f'mkdir -p {REMOTE_ROOT}/app/ingest')
+run('mkdir-models',  f'mkdir -p {REMOTE_ROOT}/app/models')
+run('mkdir-storage', f'mkdir -p {REMOTE_ROOT}/app/storage')
+run('mkdir-migrations', f'mkdir -p {REMOTE_ROOT}/migrations')
+
 sftp = client.open_sftp()
 
 # Files to push (relative to LOCAL_ROOT)
 BACKEND_FILES = [
-    'app/__init__.py',
+    # Core app
     'app/main.py',
     'app/config.py',
     'app/database.py',
     'app/dependencies.py',
     'app/backup.py',
+    'app/logging_handler.py',
+    # Auth
     'app/auth/__init__.py',
-    'app/auth/router.py',
-    'app/auth/models.py',
-    'app/auth/utils.py',
+    # Alerts
     'app/alerts/__init__.py',
-    'app/alerts/router.py',
-    'app/alerts/models.py',
     'app/alerts/engine.py',
-    'app/api/__init__.py',
+    # API
     'app/api/settings.py',
     'app/api/users.py',
     'app/api/system.py',
     'app/api/logs.py',
-    'app/logging_handler.py',
-    'migrations/002_app_logs.sql',
-    'app/ingest/__init__.py',
-    'app/ingest/router.py',
+    'app/api/pktlog.py',
+    'app/api/syslog.py',
+    'app/api/collectors.py',
+    # Models
     'app/models/__init__.py',
+    'app/models/syslog.py',
+    # Storage
     'app/storage/__init__.py',
     'app/storage/base.py',
+    'app/storage/factory.py',
+    'app/storage/clickhouse.py',
     'app/storage/duckdb.py',
-    'app/storage/clickhouse_backend.py',
+    # Ingest
+    'app/ingest/__init__.py',
+    'app/ingest/parser.py',
+    'app/ingest/normalizer.py',
+    'app/ingest/writer.py',
+    'app/ingest/listener.py',
+    # Migrations
+    'migrations/001_initial.sql',
+    'migrations/002_app_logs.sql',
+    'migrations/003_collector_registry.sql',
 ]
 
 for rel in BACKEND_FILES:
@@ -57,15 +81,9 @@ for rel in BACKEND_FILES:
 
 sftp.close()
 
-def run(label, cmd):
-    _, stdout, stderr = client.exec_command(cmd, timeout=30)
-    out = stdout.read().decode('utf-8', errors='replace').strip()
-    err = stderr.read().decode('utf-8', errors='replace').strip()
-    print(f'[{label}] {out or ""} {("ERR:"+err[:200]) if err else ""}')
-
 run('restart', 'sudo systemctl restart pktlog')
 run('status',  'sleep 4 && systemctl is-active pktlog')
-run('health',  'curl -s http://localhost:8768/api/health || echo "not ready"')
+run('health',  'curl -sk https://localhost:8768/api/health || echo "not ready"')
 
 client.close()
 print('Done')

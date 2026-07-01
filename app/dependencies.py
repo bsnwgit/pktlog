@@ -6,11 +6,12 @@ from __future__ import annotations
 from typing import Annotated, Optional
 
 import aiosqlite
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.database import get_db
 from app.auth.local import decode_access_token
+from app.config import get_settings
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
@@ -20,15 +21,50 @@ DbDep = Annotated[aiosqlite.Connection, Depends(get_db)]
 
 _bearer = HTTPBearer(auto_error=False)
 
+# Role mapping from pktHub roles to pktLog roles
+_SUITE_ROLE_MAP = {
+    "admin":   "admin",
+    "analyst": "analyst",
+    "viewer":  "analyst",   # pktLog has no viewer role; map to analyst (read-only feels)
+}
+
 
 async def get_current_user(
+    request: Request,
     db: DbDep,
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Security(_bearer)] = None,
 ) -> dict:
     """
-    Validates JWT from Authorization: Bearer header.
-    Returns the user row dict. Raises 401 if missing/invalid.
+    Validates authentication.  Two accepted paths:
+
+    1. X-Suite-Token header — sent by pktHub proxy on every proxied request.
+       If the token matches our configured suite_token, we trust pktHub's
+       X-Suite-User and X-Suite-Role headers and return a synthetic user dict.
+       No DB lookup needed — pktHub already authenticated the user.
+
+    2. Authorization: Bearer <jwt> — normal pktLog JWT issued at login.
+       Validates against our own secret_key and looks up the user in DB.
     """
+    settings = get_settings()
+
+    # ── Path 1: pktHub suite token ────────────────────────────────────────────
+    suite_token = request.headers.get("x-suite-token", "")
+    if suite_token and settings.suite_token and suite_token == settings.suite_token:
+        hub_user = request.headers.get("x-suite-user", "hub_user")
+        hub_role = request.headers.get("x-suite-role", "viewer")
+        local_role = _SUITE_ROLE_MAP.get(hub_role, "analyst")
+        return {
+            "id": 0,
+            "username": hub_user,
+            "email": f"{hub_user}@pkthub",
+            "role": local_role,
+            "is_active": True,
+            "created_at": "2020-01-01T00:00:00",
+            "last_login": None,
+            "_via_suite": True,
+        }
+
+    # ── Path 2: pktLog JWT ────────────────────────────────────────────────────
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
