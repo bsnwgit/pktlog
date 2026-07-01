@@ -19,7 +19,7 @@ router = APIRouter()
 # ── Default settings (applied on first run) ───────────────────────────────────
 DEFAULTS: dict[str, Any] = {
     # Storage
-    "storage_backend": "duckdb",          # clickhouse | duckdb
+    "storage_backend": "clickhouse",       # clickhouse | duckdb
     "retention_days_raw": 90,
     "retention_days_hourly": 365,
 
@@ -82,6 +82,9 @@ DEFAULTS: dict[str, Any] = {
 
     # Alerts
     "alert_event_retention_days": 90, # Days to keep alert_events + notification_log rows
+
+    # Ingest
+    "journal_max_gb": 5,            # Max disk for ingest file journal (GB)
 
     # Backup
     "backup_enabled": False,
