@@ -27,6 +27,7 @@ def _load_yaml() -> dict:
     """Try known config file locations and return parsed YAML, or {}."""
     candidates = [
         Path("config.yaml"),
+        Path("/app/data/config.yaml"),
         Path("/mnt/software/pktlog/config.yaml"),
         Path.home() / ".pktlog" / "config.yaml",
     ]
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
 
     # ── App database (SQLite sidecar) ──────────────────────────────────────────
     db_path: str = Field(
-        default=_yaml_cfg.get("db_path", "/mnt/software/pktlog/pktlog.db")
+        default=_yaml_cfg.get("db_path", "/app/data/pktlog.db")
     )
 
     # ── ClickHouse (startup connection — overridable at runtime via settings) ──
@@ -71,9 +72,12 @@ class Settings(BaseSettings):
     clickhouse_user: str = Field(default=_yaml_cfg.get("clickhouse_user", "default"))
     clickhouse_password: str = Field(default=_yaml_cfg.get("clickhouse_password", ""))
 
+    # ── Syslog ingest ─────────────────────────────────────────────────────────
+    syslog_port: int = Field(default=_yaml_cfg.get("syslog_port", 514))
+
     # ── DuckDB (alternate backend) ─────────────────────────────────────────────
     duckdb_path: str = Field(
-        default=_yaml_cfg.get("duckdb_path", "/mnt/software/pktlog/flows.duckdb")
+        default=_yaml_cfg.get("duckdb_path", "/app/data/pktlog_data.duckdb")
     )
 
     # ── JWT ───────────────────────────────────────────────────────────────────
@@ -85,7 +89,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    # In production, set this to your actual origin (e.g. http://172.23.80.5:8768)
+    # In production, set this to your actual origin (e.g. http://<PKT_SERVER_IP>:8768)
     cors_origins: list[str] = Field(
         default=_yaml_cfg.get("cors_origins", ["*"])
     )
@@ -98,7 +102,7 @@ class Settings(BaseSettings):
     # ── Logging ───────────────────────────────────────────────────────────────
     log_level: str = Field(default=_yaml_cfg.get("log_level", "info"))
     log_file: str = Field(
-        default=_yaml_cfg.get("log_file", "/mnt/software/logs/pktlog.log")
+        default=_yaml_cfg.get("log_file", "/app/data/logs/pktlog.log")
     )
 
 
@@ -115,8 +119,7 @@ def get_settings() -> Settings:  # type: ignore[misc]
     s = Settings()
     try:
         import sqlite3 as _sq, json as _j
-        from pathlib import Path as _P
-        _db_path = str(_P(__file__).parent.parent / 'pktlog.db')
+        _db_path = s.db_path
         _conn = _sq.connect(_db_path)
         _row = _conn.execute("SELECT value FROM settings WHERE key='suite_token'").fetchone()
         _conn.close()

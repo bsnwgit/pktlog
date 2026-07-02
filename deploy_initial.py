@@ -8,14 +8,14 @@ Run ONCE for fresh install. For subsequent updates use deploy_backend.py / deplo
 import paramiko, sys, os
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-KEY_PATH    = r'C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem'
+KEY_PATH    = r'C:\Users\robert.barnett\.ssh\<PKT_SERVER_SSH_KEY>'
 LOCAL_ROOT  = r'C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog'
 REMOTE_ROOT = '/mnt/software/pktlog'
 
 key = paramiko.RSAKey.from_private_key_file(KEY_PATH)
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect('172.23.80.5', username='ec2-user', pkey=key, timeout=15, banner_timeout=15)
+client.connect('<PKT_SERVER_IP>', username='<DEPLOY_USER>', pkey=key, timeout=15, banner_timeout=15)
 print('Connected')
 
 sftp = client.open_sftp()
@@ -124,4 +124,4 @@ run('log tail', f'tail -20 /mnt/software/logs/pktlog.log 2>/dev/null || echo "(n
 sftp.close()
 client.close()
 print(f'\nDone — service is {status.strip()}')
-print(f'URL: http://172.23.80.5:8768')
+print(f'URL: http://<PKT_SERVER_IP>:8768')

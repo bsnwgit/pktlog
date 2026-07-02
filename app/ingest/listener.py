@@ -19,11 +19,18 @@ from typing import Optional
 from app.ingest.parser import parse
 from app.ingest.normalizer import get_normalizer
 from app.ingest.writer import get_writer
+from app.config import get_settings
 
 log = logging.getLogger("pktlog.ingest.listener")
 
-_PORT     = 8761
 _MAX_SIZE = 65536   # 64 KB UDP datagram cap
+
+
+def _get_port() -> int:
+    try:
+        return get_settings().syslog_port
+    except Exception:
+        return 514
 
 
 # ── UDP protocol ──────────────────────────────────────────────────────────────
@@ -106,6 +113,7 @@ class SyslogListener:
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
+        port = _get_port()
 
         # With multiple uvicorn workers, only one process can own the port.
         # The others skip binding gracefully — the writer still starts so
@@ -114,22 +122,22 @@ class SyslogListener:
             # UDP
             self._udp_transport, _ = await loop.create_datagram_endpoint(
                 _UDPProtocol,
-                local_addr=("0.0.0.0", _PORT),
+                local_addr=("0.0.0.0", port),
             )
-            log.info("Syslog UDP listener started on port %d", _PORT)
+            log.info("Syslog UDP listener started on port %d", port)
 
             # TCP
             self._tcp_server = await asyncio.start_server(
                 _handle_tcp,
                 host="0.0.0.0",
-                port=_PORT,
+                port=port,
             )
-            log.info("Syslog TCP listener started on port %d", _PORT)
+            log.info("Syslog TCP listener started on port %d", port)
 
         except OSError as e:
             log.info(
                 "Syslog port %d already bound by another worker — this worker will not listen (%s)",
-                _PORT, e,
+                port, e,
             )
 
         # Always start the writer (handles ClickHouse flush for this worker)
