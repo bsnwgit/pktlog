@@ -33,7 +33,7 @@ Backups rotate to: `C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\p
 
 pktLog is a syslog ingest management and UI platform. It receives syslog data, stores it, and provides a management and reporting interface. It shares the same framework as pktFlow (FastAPI backend + React/TypeScript frontend).
 
-**Live URL:** https://172.23.80.5:8768
+**Live URL:** https://<PKT_SERVER_IP>:8768
 **Server path:** /mnt/software/pktlog
 **DB path:** /mnt/software/pktlog/pktlog.db
 
@@ -43,9 +43,9 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 
 | Role | IP | User | SSH Key |
 |------|----|------|---------|
-| pkt server | 172.23.80.5 | ec2-user | `C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem` |
-| Medical Collector | 172.23.80.11 | ec2-user | `C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem` |
-| Dental Collector | 10.56.57.181 | ec2-user | `C:\Users\robert.barnett\.ssh\corporate_infrastructure.pem` |
+| pkt server | <PKT_SERVER_IP> | ec2-user | `C:\Users\robert.barnett\.ssh\<PKT_SERVER_SSH_KEY>` |
+| Collector-A Collector | <COLLECTOR_A_HOST> | ec2-user | `C:\Users\robert.barnett\.ssh\<PKT_SERVER_SSH_KEY>` |
+| Collector-B Collector | <COLLECTOR_B_HOST> | ec2-user | `C:\Users\robert.barnett\.ssh\<COLLECTOR_B_SSH_KEY>` |
 
 **pktLog on pkt server:**
 - Service: `systemctl status pktlog`
@@ -73,10 +73,10 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 ```python
 import paramiko, sys
 sys.stdout.reconfigure(encoding='utf-8')  # REQUIRED — Windows defaults to cp1252
-key = paramiko.RSAKey.from_private_key_file(r"C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem")
+key = paramiko.RSAKey.from_private_key_file(r"C:\Users\robert.barnett\.ssh\<PKT_SERVER_SSH_KEY>")
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect("172.23.80.5", username="ec2-user", pkey=key, timeout=15, banner_timeout=15)
+client.connect("<PKT_SERVER_IP>", username="<DEPLOY_USER>", pkey=key, timeout=15, banner_timeout=15)
 _, stdout, _ = client.exec_command("your command", timeout=20)
 print(stdout.read().decode('utf-8', errors='replace'))
 client.close()
@@ -163,7 +163,7 @@ conn.commit()
 
 - Backend: FastAPI, HTTPS on 8768, ClickHouse storage, syslog ingest live on 8761
 - Ingest: UDP+TCP listener → RFC 3164/5424 parser → normalizer (org/group/site enrichment) → ClickHouse batch writer with file journal fallback
-- Collectors: Medical (172.23.80.11) and Dental (10.56.57.181) syslog-ng forwarding to pkt server:8761 with disk-buffer
+- Collectors: Collector-A (<COLLECTOR_A_HOST>) and Collector-B (<COLLECTOR_B_HOST>) syslog-ng forwarding to pkt server:8761 with disk-buffer
 - Storage: ClickHouse `pktlog.syslog_events` (17 columns), SQLite for app config/auth/alerts/collector_registry
 - Frontend: React app with Login, Dashboard (stub), Alerts, Settings, Users, Logs pages
 

@@ -11,12 +11,12 @@ LOCAL_SRC   = r'C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLo
 LOCAL_FE    = r'C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog\frontend'
 REMOTE_SRC  = '/mnt/software/pktlog/frontend/src'
 REMOTE_ROOT = '/mnt/software/pktlog'
-KEY_PATH    = r'C:\Users\robert.barnett\.ssh\VyneCorpNetInfra.pem'
+KEY_PATH    = r'C:\Users\robert.barnett\.ssh\<PKT_SERVER_SSH_KEY>'
 
 key = paramiko.RSAKey.from_private_key_file(KEY_PATH)
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect('172.23.80.5', username='ec2-user', pkey=key, timeout=15, banner_timeout=15)
+client.connect('<PKT_SERVER_IP>', username='<DEPLOY_USER>', pkey=key, timeout=15, banner_timeout=15)
 print('Connected')
 
 sftp = client.open_sftp()
