@@ -121,7 +121,12 @@ async def get_all_settings(_: CurrentUser, db: aiosqlite.Connection = Depends(ge
     async with db.execute("SELECT key, value FROM settings") as cur:
         rows = await cur.fetchall()
 
-    result = {r[0]: json.loads(r[1]) for r in rows}
+    result = {}
+    for r in rows:
+        try:
+            result[r[0]] = json.loads(r[1])
+        except (json.JSONDecodeError, TypeError, ValueError):
+            result[r[0]] = r[1]  # fall back to raw string for non-JSON values
 
     # Mask secrets in API response
     for secret_key in _SECRET_KEYS:
