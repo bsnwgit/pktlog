@@ -480,7 +480,7 @@ function PktHubTokenDisplay() {
               type="url"
               value={redirectUrl}
               onChange={e => setRedirectUrl(e.target.value)}
-              placeholder="https://10.20.30.5:8765"
+              placeholder="https://<PKT_SERVER_IP>:8765"
               className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-blue-500"
             />
             <button
@@ -728,7 +728,7 @@ export default function Settings() {
             <TextInput value={str('app_name', 'pktLog')} onChange={v => set('app_name', v)} />
           </Field>
           <Field label="Base URL" hint="Used for redirect URIs and notification links">
-            <TextInput value={str('base_url')} onChange={v => set('base_url', v)} placeholder="http://10.20.30.5:8768" />
+            <TextInput value={str('base_url')} onChange={v => set('base_url', v)} placeholder="http://<PKT_SERVER_IP>:8768" />
           </Field>
           <Field label="Timezone" hint="Affects display of timestamps in the UI">
             <SelectInput
@@ -1450,7 +1450,7 @@ function CollectorRegistryTab() {
   const [error, setError]           = useState('')
 
   const EMPTY: Partial<CollectorIn> = {
-    collector_ip: '', collector_name: '', org: 'Corp', log_group: '', site: '', notes: '',
+    collector_ip: '', collector_name: '', org: '<ORG_NAME>', log_group: '', site: '', notes: '',
   }
   const [addForm, setAddForm] = useState<Partial<CollectorIn>>(EMPTY)
 
@@ -1535,11 +1535,11 @@ function CollectorRegistryTab() {
                 </td>
                 <td className="px-3 py-2">
                   <input value={addForm.org ?? ''} onChange={e => setAddForm(f => ({ ...f, org: e.target.value }))}
-                    placeholder="Corp" className={InputCls} />
+                    placeholder="<ORG_NAME>" className={InputCls} />
                 </td>
                 <td className="px-3 py-2">
                   <input value={addForm.log_group ?? ''} onChange={e => setAddForm(f => ({ ...f, log_group: e.target.value }))}
-                    placeholder="Medical" className={InputCls} />
+                    placeholder="Collector-A" className={InputCls} />
                 </td>
                 <td className="px-3 py-2">
                   <input value={addForm.site ?? ''} onChange={e => setAddForm(f => ({ ...f, site: e.target.value }))}
