@@ -65,7 +65,7 @@ DEFAULTS: dict[str, Any] = {
 
     # General
     "app_name": "pktLog",
-    "base_url": "http://172.23.80.5:8768",
+    "base_url": "http://<PKT_SERVER_IP>:8768",
     "timezone": "UTC",
 
     # AI assistant
