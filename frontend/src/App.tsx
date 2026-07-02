@@ -21,9 +21,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <Layout>{children}</Layout>
 }
 
+
+// Detect pktHub proxy basename so React Router routes work when served
+// via /proxy/{appId}/. In direct mode pathname starts with / so basename stays '/'.
+function getBasename(): string {
+  const m = window.location.pathname.match(/^(\/proxy\/[^/]+)/)
+  return m ? m[1] : '/'
+}
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={getBasename()}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
