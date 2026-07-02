@@ -20,6 +20,8 @@ config.yaml          # contains secret_key and passwords — use config.example.
 
 # Runtime data (never commit databases or logs)
 *.db
+*.db-wal
+*.db-shm
 *.duckdb
 *.log
 *.sqlite

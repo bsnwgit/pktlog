@@ -70,6 +70,15 @@ async def refresh_token(
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
 ):
+    # Suite-token path: pktHub proxy strips cookies but injects X-Suite-Token.
+    # Skip the cookie requirement when called through managed proxy.
+    from app.config import get_settings as _get_settings
+    _cfg = _get_settings()
+    _suite_tok = request.headers.get("x-suite-token", "")
+    if _suite_tok and _cfg.suite_token and _suite_tok == _cfg.suite_token:
+        hub_role = request.headers.get("x-suite-role", "viewer")
+        return TokenResponse(access_token=create_access_token(0, hub_role), role=hub_role)
+
     token = request.cookies.get("refresh_token")
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")

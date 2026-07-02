@@ -23,6 +23,7 @@ from app.api import logs as logs_router
 from app.api import syslog as syslog_router
 from app.api import collectors as collectors_router
 from app.api import suite as suite_router
+from app.api import widgets as widgets_router
 
 settings = get_settings()
 log = logging.getLogger("pktlog")
@@ -42,6 +43,35 @@ async def lifespan(app: FastAPI):
     # Run SQLite migrations
     await init_db()
     log.info("Database migrations applied")
+
+    # ── Direct access lock failsafe ───────────────────────────────────────────
+    try:
+        import aiosqlite as _aio, httpx as _hx
+        async with _aio.connect(settings.db_path) as _db:
+            async with _db.execute("SELECT value FROM settings WHERE key='direct_ui_locked'") as _cur:
+                _lrow = await _cur.fetchone()
+            if _lrow and _lrow[0] == "true":
+                async with _db.execute("SELECT value FROM settings WHERE key='hub_redirect_url'") as _cur:
+                    _rrow = await _cur.fetchone()
+                _hub_url = _rrow[0] if _rrow and _rrow[0] else ""
+                _hub_up = False
+                if _hub_url:
+                    try:
+                        async with _hx.AsyncClient(verify=False, timeout=5) as _hc:
+                            _r = await _hc.get(f"{_hub_url.rstrip('/')}/api/health")
+                            _hub_up = _r.status_code == 200
+                    except Exception:
+                        pass
+                if not _hub_up:
+                    await _db.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES ('direct_ui_locked', 'false')")
+                    await _db.commit()
+                    log.warning("Startup failsafe: direct_ui_locked was set but hub unreachable — lock cleared")
+                else:
+                    log.info("Startup: direct_ui_locked=true, hub reachable — lock maintained")
+    except Exception as _e:
+        log.warning(f"Startup lock check: {_e}")
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Connect to storage backend
     await init_storage()
@@ -107,6 +137,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def _direct_access_lock(request: Request, call_next):
+    """Block direct UI access when hub-managed mode is active."""
+    from fastapi.responses import RedirectResponse
+    import aiosqlite as _aio
+    path = request.url.path
+    _ALLOW_PFX = ("/api/health", "/api/suite/", "/api/auth/", "/assets/", "/logos/", "/static/", "/widgets/")
+    if any(path == p or path.startswith(p) for p in _ALLOW_PFX):
+        return await call_next(request)
+    _cfg = get_settings()
+    _suite_tk = request.headers.get("x-suite-token", "")
+    try:
+        async with _aio.connect(_cfg.db_path) as _db:
+            _stored_token = _cfg.suite_token  # get_settings() is uncached, JSON-decoded
+            if _suite_tk and _stored_token and _suite_tk == _stored_token:
+                await _db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES ('lock_heartbeat_at', datetime('now'))")
+                await _db.commit()
+                return await call_next(request)
+            async with _db.execute("SELECT value FROM settings WHERE key='direct_ui_locked'") as _cur:
+                _lrow = await _cur.fetchone()
+            if _lrow and _lrow[0] == "true":
+                async with _db.execute("SELECT value FROM settings WHERE key='lock_heartbeat_at'") as _cur:
+                    _hrow = await _cur.fetchone()
+                _expired = True
+                if _hrow and _hrow[0]:
+                    from datetime import datetime as _dt
+                    try:
+                        _last = _dt.fromisoformat(str(_hrow[0]).replace(" ", "T"))
+                        _expired = (_dt.now() - _last).total_seconds() > 300
+                    except Exception:
+                        pass
+                if _expired:
+                    await _db.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES ('direct_ui_locked', 'false')")
+                    await _db.commit()
+                else:
+                    async with _db.execute("SELECT value FROM settings WHERE key='hub_redirect_url'") as _cur:
+                        _rrow = await _cur.fetchone()
+                    _rurl = _rrow[0] if _rrow and _rrow[0] else ""
+                    if _rurl:
+                        return RedirectResponse(url=_rurl, status_code=302)
+    except Exception:
+        pass
+    return await call_next(request)
+
+
 # ── API Routers ───────────────────────────────────────────────────────────────
 
 app.include_router(auth.router,            prefix="/api/auth",     tags=["auth"])
@@ -118,12 +195,32 @@ app.include_router(logs_router.router,     prefix="/api/logs",     tags=["logs"]
 app.include_router(syslog_router.router,    prefix="/api/syslog",      tags=["syslog"])
 app.include_router(collectors_router.router, prefix="/api/collectors", tags=["collectors"])
 app.include_router(suite_router.router, prefix="/api/suite", tags=["suite"])
+app.include_router(widgets_router.router,  prefix="/api",          tags=["widgets"])
 
 # ── Health check ──────────────────────────────────────────────────────────────
 
 @app.get("/api/health", tags=["system"])
-async def health():
-    return {"status": "ok", "version": "0.1.0"}
+async def health(request: Request):
+    import aiosqlite as _aio
+    _locked = False; _rurl = ""
+    try:
+        async with _aio.connect(settings.db_path) as _db:
+            async with _db.execute("SELECT value FROM settings WHERE key='direct_ui_locked'") as _cur:
+                _row = await _cur.fetchone()
+            _locked = bool(_row and _row[0] == "true")
+            async with _db.execute("SELECT value FROM settings WHERE key='hub_redirect_url'") as _cur:
+                _rrow = await _cur.fetchone()
+            _rurl = _rrow[0] if _rrow and _rrow[0] else ""
+            _suite_tk = request.headers.get("x-suite-token", "")
+            if _suite_tk:
+                _stored_token = get_settings().suite_token  # uncached, JSON-decoded
+                if _stored_token and _suite_tk == _stored_token:
+                    await _db.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES ('lock_heartbeat_at', datetime('now'))")
+                    await _db.commit()
+    except Exception:
+        pass
+    return {"status": "ok", "version": "0.1.0", "direct_ui_locked": _locked, "hub_redirect_url": _rurl}
 
 # ── Serve React frontend (production build) ───────────────────────────────────
 # In development, Vite's dev server handles this on a different port.
@@ -144,26 +241,19 @@ if _frontend_dist.exists():
         index = _frontend_dist / "index.html"
         response = FileResponse(str(index))
 
-        # pktHub suite-token bootstrap:
-        # When this SPA is loaded through pktHub's proxy, pktHub sends X-Suite-Token
-        # on every request.  If the token is valid, generate a pktLog JWT and set
-        # the same sso_access_token + sso_role cookies that the SAML flow uses.
-        # React's AuthProvider reads these on mount and logs the user in
-        # without showing a login screen.
         _cfg = settings
         _suite_tk = request.headers.get("x-suite-token", "")
-        if _suite_tk and _cfg.suite_token and _suite_tk == _cfg.suite_token:
+        _spa_stored = get_settings().suite_token if _suite_tk else ""
+        if _suite_tk and _spa_stored and _suite_tk == _spa_stored:
             from datetime import datetime, timedelta, timezone
             from jose import jwt as _jose_jwt
             from app.dependencies import _SUITE_ROLE_MAP
             _hub_user = request.headers.get("x-suite-user", "hub_user")
             _hub_role = request.headers.get("x-suite-role", "viewer")
             _local_role = _SUITE_ROLE_MAP.get(_hub_role, "analyst")
-            # 8-hour JWT — sub="0" (synthetic; get_current_user handles id=0 via X-Suite-Token)
             _expire = datetime.now(tz=timezone.utc) + timedelta(hours=8)
             _payload = {"sub": "0", "role": _local_role, "exp": _expire, "type": "access"}
             _jwt = _jose_jwt.encode(_payload, _cfg.secret_key, algorithm=_cfg.algorithm)
-            # httponly=False so JS can read via document.cookie (same as SAML flow)
             response.set_cookie("sso_access_token", _jwt,    max_age=60, httponly=False, samesite="lax")
             response.set_cookie("sso_role",         _local_role, max_age=60, httponly=False, samesite="lax")
 
