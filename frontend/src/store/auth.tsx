@@ -66,6 +66,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  // Proactive session polling — if both tokens expire while user is idle, redirect to login.
+  useEffect(() => {
+    if (!user) return
+    const interval = setInterval(async () => {
+      const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        setToken(data.access_token, data.role)
+      } else {
+        clearToken()
+        window.location.replace('/login')
+      }
+    }, 60_000)
+    return () => clearInterval(interval)
+  }, [user])
+
   return (
     <AuthContext.Provider value={{ user, login, logout, isLoading }}>
       {children}

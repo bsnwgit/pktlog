@@ -379,6 +379,9 @@ function PktHubTokenDisplay() {
   const [copied, setCopied]         = useState(false)
   const [loaded, setLoaded]         = useState(false)
   const [regenerating, setRegen]    = useState(false)
+  const [redirectUrl, setRedirectUrl] = useState('')
+  const [redirectUrlSaved, setRedirectUrlSaved] = useState(false)
+  const [savingUrl, setSavingUrl] = useState(false)
 
   const regenerate = async () => {
     if (!confirm('Generate a new token?\n\nThe current token will stop working immediately.\nYou will need to re-register this app in pktHub with the new token.')) return
@@ -391,11 +394,29 @@ function PktHubTokenDisplay() {
     setRegen(false)
   }
 
+  const saveRedirectUrl = async () => {
+    setSavingUrl(true)
+    try {
+      await fetch('/api/suite/hub-redirect-url', {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hub_redirect_url: redirectUrl }),
+      })
+      setRedirectUrlSaved(true)
+      setTimeout(() => setRedirectUrlSaved(false), 3000)
+    } catch {}
+    setSavingUrl(false)
+  }
+
   useEffect(() => {
     fetch('/api/suite/token', { credentials: 'include' })
       .then(r => r.json())
       .then(d => { setToken(d.suite_token || ''); setLoaded(true) })
       .catch(() => setLoaded(true))
+    fetch('/api/suite/mode', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.hub_redirect_url) setRedirectUrl(d.hub_redirect_url) })
+      .catch(() => {})
   }, [])
 
   const masked = token
@@ -446,6 +467,32 @@ function PktHubTokenDisplay() {
               </button>
             </div>
           )}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4 items-start py-3 border-b border-gray-800">
+        <div>
+          <p className="text-sm font-medium text-white">Hub Redirect URL</p>
+          <p className="text-xs text-gray-500 mt-0.5">Where users are sent when direct access is blocked in Managed Mode</p>
+        </div>
+        <div className="col-span-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="url"
+              value={redirectUrl}
+              onChange={e => setRedirectUrl(e.target.value)}
+              placeholder="https://172.23.80.5:8765"
+              className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={saveRedirectUrl}
+              disabled={savingUrl}
+              className="px-3 py-2 text-xs font-medium text-white rounded-lg whitespace-nowrap disabled:opacity-40 transition-colors"
+              style={{ background: redirectUrlSaved ? '#16a34a' : '#2563eb' }}
+            >
+              {savingUrl ? '\u2026' : redirectUrlSaved ? '\u2713 Saved' : 'Save'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-600 mt-1.5">Configure before enabling Managed Mode in pktHub → App Registry.</p>
         </div>
       </div>
       <div className="grid grid-cols-3 gap-4 items-start py-3">
