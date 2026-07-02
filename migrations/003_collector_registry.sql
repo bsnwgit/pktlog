@@ -4,9 +4,9 @@
 CREATE TABLE IF NOT EXISTS collector_registry (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     collector_ip    TEXT NOT NULL UNIQUE,   -- IP pktLog sees on the inbound TCP/UDP socket
-    collector_name  TEXT NOT NULL,          -- human label, e.g. "medical", "dental"
-    org             TEXT NOT NULL DEFAULT 'Vyne',
-    log_group       TEXT NOT NULL DEFAULT '',  -- e.g. "Medical", "Dental"
+    collector_name  TEXT NOT NULL,          -- human label, e.g. "collector-a", "collector-b"
+    org             TEXT NOT NULL DEFAULT '<ORG_NAME>',
+    log_group       TEXT NOT NULL DEFAULT '',  -- e.g. "Collector-A", "Collector-B"
     site            TEXT NOT NULL DEFAULT '',  -- optional finer-grained site label
     notes           TEXT NOT NULL DEFAULT '',
     enabled         INTEGER NOT NULL DEFAULT 1,
@@ -16,10 +16,10 @@ CREATE TABLE IF NOT EXISTS collector_registry (
 
 -- Seed known collectors
 INSERT OR IGNORE INTO collector_registry (collector_ip, collector_name, org, log_group, site) VALUES
-    ('172.23.80.11', 'medical',  'Vyne', 'Medical', ''),
-    ('10.56.57.181', 'dental',   'Vyne', 'Dental',  '');
+    ('<COLLECTOR_A_HOST>', 'collector-a',  '<ORG_NAME>', 'Collector-A', ''),
+    ('<COLLECTOR_B_HOST>', 'collector-b',   '<ORG_NAME>', 'Collector-B',  '');
 
 -- Direct sources (O2 loopback) treated as local
 INSERT OR IGNORE INTO collector_registry (collector_ip, collector_name, org, log_group, site) VALUES
-    ('127.0.0.1',    'local',    'Vyne', 'Infrastructure', 'o2'),
-    ('172.23.80.5',  'local',    'Vyne', 'Infrastructure', 'o2');
+    ('127.0.0.1',    'local',    '<ORG_NAME>', 'Infrastructure', 'o2'),
+    ('<PKT_SERVER_IP>',  'local',    '<ORG_NAME>', 'Infrastructure', 'o2');
