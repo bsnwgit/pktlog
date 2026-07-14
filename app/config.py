@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # ── Server ────────────────────────────────────────────────────────────────
     host: str = Field(default=_yaml_cfg.get("host", "0.0.0.0"))
-    port: int = Field(default=_yaml_cfg.get("port", 8080))
+    port: int = Field(default=_yaml_cfg.get("port", 8768))
     workers: int = Field(default=_yaml_cfg.get("workers", 2))
     debug: bool = Field(default=_yaml_cfg.get("debug", False))
 
@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     clickhouse_password: str = Field(default=_yaml_cfg.get("clickhouse_password", ""))
 
     # ── Syslog ingest ─────────────────────────────────────────────────────────
-    syslog_port: int = Field(default=_yaml_cfg.get("syslog_port", 514))
+    syslog_port: int = Field(default=_yaml_cfg.get("syslog_port", 8761))
 
     # ── DuckDB (alternate backend) ─────────────────────────────────────────────
     duckdb_path: str = Field(

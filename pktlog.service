@@ -1,22 +1,25 @@
+# Template — install.sh substitutes __INSTALL_DIR__ / __LOG_DIR__ /
+# __SERVICE_USER__ / __SERVICE_GROUP__ before installing to systemd.
+# For a manual install, replace these placeholders yourself.
 [Unit]
 Description=pktLog Syslog Management Platform
-Documentation=https://github.com/<org_name>/pktlog
+Documentation=https://github.com/bsnwgit/pktlog
 After=network.target
-# Uncomment if using ClickHouse backend:
+# Uncomment if ClickHouse runs on this host and is managed by systemd:
 # Requires=clickhouse-server.service
 
 [Service]
 Type=simple
-User=<DEPLOY_USER>
-Group=<DEPLOY_USER>
-WorkingDirectory=<INSTALL_DIR>
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__INSTALL_DIR__
 
 # Config
-Environment=PKTLOG_CONFIG=<INSTALL_DIR>/config.yaml
+Environment=PKTLOG_CONFIG=__INSTALL_DIR__/config.yaml
 
 # Launch FastAPI via Uvicorn
-# --workers 2 is safe for a single EC2; increase if CPU allows
-ExecStart=<INSTALL_DIR>/venv/bin/uvicorn app.main:app \
+# --workers 2 is safe for a single host; increase if CPU allows
+ExecStart=__INSTALL_DIR__/venv/bin/uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8768 \
     --workers 2 \
@@ -30,8 +33,8 @@ StartLimitInterval=60
 StartLimitBurst=3
 
 # Logging
-StandardOutput=append:/mnt/software/logs/pktlog.log
-StandardError=append:/mnt/software/logs/pktlog.log
+StandardOutput=append:__LOG_DIR__/pktlog.log
+StandardError=append:__LOG_DIR__/pktlog.log
 
 # Security hardening
 NoNewPrivileges=yes
