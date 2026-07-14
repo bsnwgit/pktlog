@@ -1,7 +1,12 @@
 """
 Project backup script — 2-rotation local backup.
 
-Usage: python backup.py
+Usage:
+  python backup.py [--project-dir PATH]
+or:
+  PKTLOG_PROJECT_DIR=/path/to/pktlog python backup.py
+
+Defaults to the directory this script lives in.
 
 Keeps two snapshots alongside the project folder:
   ../pktLog_backups/backup_1/  ← most recent
@@ -13,16 +18,28 @@ On each run:
   3. Copy current project → backup_1
 
 To restore: copy files from backup_1/ back into the project folder,
-then redeploy to pkt server if applicable.
+then redeploy to the server if applicable.
 """
 
-import shutil, sys
+import argparse
+import os
+import shutil
+import sys
 sys.stdout.reconfigure(encoding='utf-8')
 from pathlib import Path
 from datetime import datetime, timezone
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--project-dir",
+    default=os.environ.get("PKTLOG_PROJECT_DIR", str(Path(__file__).resolve().parent)),
+    help="Path to the pktlog project directory to back up (default: script's own directory, "
+         "or PKTLOG_PROJECT_DIR env var)",
+)
+args = parser.parse_args()
+
 # ── Project path ──────────────────────────────────────────────────────────────
-PROJECT_DIR = Path(r"C:\Users\user\My Drive\Documents\Claude\Projects\pktLog")
+PROJECT_DIR = Path(args.project_dir).resolve()
 # ─────────────────────────────────────────────────────────────────────────────
 
 BACKUP_BASE = PROJECT_DIR.parent / f"{PROJECT_DIR.name}_backups"
