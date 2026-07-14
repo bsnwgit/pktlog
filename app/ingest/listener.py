@@ -30,7 +30,7 @@ def _get_port() -> int:
     try:
         return get_settings().syslog_port
     except Exception:
-        return 514
+        return 8761
 
 
 # ── UDP protocol ──────────────────────────────────────────────────────────────

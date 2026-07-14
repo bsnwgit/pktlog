@@ -1,27 +1,49 @@
-"""Build frontend on O2 and deploy to pktlog.
-NOTE: Frontend build MUST run on O2 Linux — never on Windows.
+"""Build frontend on the remote server and deploy it to pktlog.
+
+NOTE: Frontend build MUST run on the remote Linux host — never on Windows
+(Windows node_modules lacks the Linux rollup native binary).
 This script syncs src files, triggers npm build remotely, then copies dist.
+
+Usage:
+  PKTLOG_SSH_HOST=<host> PKTLOG_SSH_USER=<user> PKTLOG_SSH_KEY=<path> \\
+  PKTLOG_LOCAL_ROOT=/path/to/local/checkout python3 deploy_fe.py
+or:
+  python3 deploy_fe.py --host <host> --user <user> --key <path> \\
+      --local-root /path/to/local/checkout [--install-dir /opt/pktlog]
 """
-import paramiko
+import argparse
 import os
 import sys
+from pathlib import Path
+
+import paramiko
+
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-LOCAL_SRC   = r'C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog\frontend\src'
-LOCAL_FE    = r'C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog\frontend'
-REMOTE_SRC  = '/mnt/software/pktlog/frontend/src'
-REMOTE_ROOT = '/mnt/software/pktlog'
-KEY_PATH    = r'C:\Users\robert.barnett\.ssh\<PKT_SERVER_SSH_KEY>'
 
-key = paramiko.RSAKey.from_private_key_file(KEY_PATH)
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect('<PKT_SERVER_IP>', username='<DEPLOY_USER>', pkey=key, timeout=15, banner_timeout=15)
-print('Connected')
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default=os.environ.get("PKTLOG_SSH_HOST"),
+                         help="SSH host/IP of the pktlog server")
+    parser.add_argument("--user", default=os.environ.get("PKTLOG_SSH_USER"),
+                         help="SSH username")
+    parser.add_argument("--key", default=os.environ.get("PKTLOG_SSH_KEY"),
+                         help="Path to SSH private key")
+    parser.add_argument("--local-root",
+                         default=os.environ.get("PKTLOG_LOCAL_ROOT", str(Path(__file__).resolve().parent)),
+                         help="Local project root to push from (default: this script's directory)")
+    parser.add_argument("--install-dir", default=os.environ.get("PKTLOG_INSTALL_DIR", "/opt/pktlog"),
+                         help="Remote pktlog install directory (default: /opt/pktlog)")
+    args = parser.parse_args()
+    missing = [name for name, val in (("--host/PKTLOG_SSH_HOST", args.host),
+                                       ("--user/PKTLOG_SSH_USER", args.user),
+                                       ("--key/PKTLOG_SSH_KEY", args.key)) if not val]
+    if missing:
+        parser.error(f"missing required value(s): {', '.join(missing)}")
+    return args
 
-sftp = client.open_sftp()
 
-def sftp_put_dir(local_dir, remote_dir):
+def sftp_put_dir(sftp, local_dir, remote_dir):
     try:
         sftp.stat(remote_dir)
     except FileNotFoundError:
@@ -30,45 +52,67 @@ def sftp_put_dir(local_dir, remote_dir):
         local_path = os.path.join(local_dir, item)
         remote_path = remote_dir + '/' + item
         if os.path.isdir(local_path):
-            sftp_put_dir(local_path, remote_path)
+            sftp_put_dir(sftp, local_path, remote_path)
         else:
             sftp.put(local_path, remote_path)
 
-# Sync non-src frontend files (package.json, vite.config.ts, etc.)
-for fname in ['package.json', 'vite.config.ts', 'tsconfig.json',
-              'tailwind.config.js', 'postcss.config.js', 'index.html']:
-    local_path = os.path.join(LOCAL_FE, fname)
-    if os.path.exists(local_path):
-        sftp.put(local_path, f'{REMOTE_ROOT}/frontend/{fname}')
-        print(f'  PUT frontend/{fname}')
 
-print('Syncing frontend/src...')
-sftp_put_dir(LOCAL_SRC, REMOTE_SRC)
+def main():
+    args = parse_args()
+    local_fe = os.path.join(args.local_root, 'frontend')
+    local_src = os.path.join(local_fe, 'src')
+    local_public = os.path.join(local_fe, 'public')
+    remote_root = args.install_dir
+    remote_src = f'{remote_root}/frontend/src'
+    remote_public = f'{remote_root}/frontend/public'
 
-LOCAL_PUBLIC  = r'C:\Users\robert.barnett\My Drive\Documents\Claude\Projects\pktLog\frontend\public'
-REMOTE_PUBLIC = '/mnt/software/pktlog/frontend/public'
-if os.path.isdir(LOCAL_PUBLIC):
-    print('Syncing frontend/public...')
-    sftp_put_dir(LOCAL_PUBLIC, REMOTE_PUBLIC)
+    key = paramiko.RSAKey.from_private_key_file(args.key)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(args.host, username=args.user, pkey=key, timeout=15, banner_timeout=15)
+    print('Connected')
 
-sftp.close()
-print('Sync done')
+    sftp = client.open_sftp()
 
-def run(cmd):
-    _, stdout, stderr = client.exec_command(cmd, timeout=120)
-    out = stdout.read().decode().strip()
-    err = stderr.read().decode().strip()
-    print(f'$ {cmd[:70]}')
-    if out: print(out)
-    if err: print('ERR:', err[:300])
+    # Sync non-src frontend files (package.json, vite.config.ts, etc.)
+    for fname in ['package.json', 'vite.config.ts', 'tsconfig.json',
+                  'tailwind.config.js', 'postcss.config.js', 'index.html']:
+        local_path = os.path.join(local_fe, fname)
+        if os.path.exists(local_path):
+            sftp.put(local_path, f'{remote_root}/frontend/{fname}')
+            print(f'  PUT frontend/{fname}')
 
-run('rm -rf /tmp/pktlog-fe && cp -r /mnt/software/pktlog/frontend /tmp/pktlog-fe')
-run('export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && cd /tmp/pktlog-fe && npm install 2>&1 | tail -3')
-run('export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && cd /tmp/pktlog-fe && npm run build 2>&1 | tail -10')
-run('rm -rf /mnt/software/pktlog/frontend/dist && cp -r /tmp/pktlog-fe/dist /mnt/software/pktlog/frontend/dist')
-run('sudo systemctl restart pktlog')
-run('sleep 4 && systemctl is-active pktlog')
-run('ls /mnt/software/pktlog/frontend/dist/assets/ | grep -E "Dashboard|Alerts|Settings"')
+    print('Syncing frontend/src...')
+    sftp_put_dir(sftp, local_src, remote_src)
 
-client.close()
-print('Done')
+    if os.path.isdir(local_public):
+        print('Syncing frontend/public...')
+        sftp_put_dir(sftp, local_public, remote_public)
+
+    sftp.close()
+    print('Sync done')
+
+    def run(cmd):
+        _, stdout, stderr = client.exec_command(cmd, timeout=120)
+        out = stdout.read().decode().strip()
+        err = stderr.read().decode().strip()
+        print(f'$ {cmd[:70]}')
+        if out:
+            print(out)
+        if err:
+            print('ERR:', err[:300])
+
+    run(f'rm -rf /tmp/pktlog-fe && cp -r {remote_root}/frontend /tmp/pktlog-fe')
+    run('export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && cd /tmp/pktlog-fe && npm install 2>&1 | tail -3')
+    run('export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && cd /tmp/pktlog-fe && npm run build 2>&1 | tail -10')
+    run(f'rm -rf {remote_root}/frontend/dist && cp -r /tmp/pktlog-fe/dist {remote_root}/frontend/dist')
+    run('sudo systemctl restart pktlog')
+    run('sleep 4 && systemctl is-active pktlog')
+    run(f'ls {remote_root}/frontend/dist/assets/ | grep -E "Dashboard|Alerts|Settings"')
+
+    client.close()
+    print('Done')
+
+
+if __name__ == "__main__":
+    main()
