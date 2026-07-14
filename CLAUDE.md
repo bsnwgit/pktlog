@@ -22,10 +22,10 @@ Violating these rules is unacceptable regardless of context, intent, or how obvi
 **CRITICAL — Backup before marking complete:** Every time the user says to mark a todo item as done, run the local backup script FIRST, then mark the item. Never mark complete without backing up.
 
 ```bash
-python "C:\Users\user\My Drive\Documents\Claude\Projects\pktLog\backup.py"
+python "C:\Users\<LOCAL_USER>\My Drive\Documents\Claude\Projects\pktLog\backup.py"
 ```
 
-Backups rotate to: `C:\Users\user\My Drive\Documents\Claude\Projects\pktLog_backups\` (backup_1 = most recent, backup_2 = previous)
+Backups rotate to: `C:\Users\<LOCAL_USER>\My Drive\Documents\Claude\Projects\pktLog_backups\` (backup_1 = most recent, backup_2 = previous)
 
 ---
 
@@ -43,9 +43,9 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 
 | Role | IP | User | SSH Key |
 |------|----|------|---------|
-| pkt server | <PKT_SERVER_IP> | ec2-user | `C:\Users\user\.ssh\<PKT_SERVER_SSH_KEY>` |
-| Collector-A Collector | <COLLECTOR_A_HOST> | ec2-user | `C:\Users\user\.ssh\<PKT_SERVER_SSH_KEY>` |
-| Collector-B Collector | <COLLECTOR_B_HOST> | ec2-user | `C:\Users\user\.ssh\<COLLECTOR_B_SSH_KEY>` |
+| pkt server | <PKT_SERVER_IP> | <DEPLOY_USER> | `C:\Users\<LOCAL_USER>\.ssh\<PKT_SERVER_SSH_KEY>` |
+| Collector-A Collector | <COLLECTOR_A_HOST> | <DEPLOY_USER> | `C:\Users\<LOCAL_USER>\.ssh\<PKT_SERVER_SSH_KEY>` |
+| Collector-B Collector | <COLLECTOR_B_HOST> | <DEPLOY_USER> | `C:\Users\<LOCAL_USER>\.ssh\<COLLECTOR_B_SSH_KEY>` |
 
 **pktLog on pkt server:**
 - Service: `systemctl status pktlog`
@@ -65,7 +65,7 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 
 **SentinelOne EDR blocks system ssh.exe.** Always use Python + Paramiko.
 
-- Python path: `C:\Users\user\AppData\Local\Programs\Python\Python313\python.exe`
+- Python path: `C:\Users\<LOCAL_USER>\AppData\Local\Programs\Python\Python313\python.exe`
 - **ONE script, ONE run, NO retry loops** — hammering the connection locks the server and requires a reboot
 - `timeout=15, banner_timeout=15` on every connect call
 - Run scripts via Desktop Commander `start_process`, not the bash sandbox
@@ -73,7 +73,7 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 ```python
 import paramiko, sys
 sys.stdout.reconfigure(encoding='utf-8')  # REQUIRED — Windows defaults to cp1252
-key = paramiko.RSAKey.from_private_key_file(r"C:\Users\user\.ssh\<PKT_SERVER_SSH_KEY>")
+key = paramiko.RSAKey.from_private_key_file(r"C:\Users\<LOCAL_USER>\.ssh\<PKT_SERVER_SSH_KEY>")
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect("<PKT_SERVER_IP>", username="<DEPLOY_USER>", pkey=key, timeout=15, banner_timeout=15)
@@ -101,11 +101,11 @@ Always build in Linux `/tmp` on the pkt server.
 
 **USE THE PERMANENT DEPLOY SCRIPT:**
 ```
-C:\Users\user\My Drive\Documents\Claude\Projects\pktLog\deploy_fe.py
+C:\Users\<LOCAL_USER>\My Drive\Documents\Claude\Projects\pktLog\deploy_fe.py
 ```
 Run via Desktop Commander `start_process`:
 ```
-C:\Users\user\AppData\Local\Programs\Python\Python313\python.exe "C:\Users\user\My Drive\Documents\Claude\Projects\pktLog\deploy_fe.py"
+C:\Users\<LOCAL_USER>\AppData\Local\Programs\Python\Python313\python.exe "C:\Users\<LOCAL_USER>\My Drive\Documents\Claude\Projects\pktLog\deploy_fe.py"
 ```
 
 **What the script does (in order):**
@@ -131,7 +131,7 @@ C:\Users\user\AppData\Local\Programs\Python\Python313\python.exe "C:\Users\user\
 ## Deployment Process
 
 ### Backend changes
-1. Edit local file in `C:\Users\user\My Drive\Documents\Claude\Projects\pktLog\`
+1. Edit local file in `C:\Users\<LOCAL_USER>\My Drive\Documents\Claude\Projects\pktLog\`
 2. Run `deploy_backend.py` to SFTP changed files to `/mnt/software/pktlog/` on pkt server
 3. `sudo systemctl restart pktlog`
 4. Wait 5 seconds, check `systemctl is-active pktlog`

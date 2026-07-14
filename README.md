@@ -2,69 +2,72 @@
 
 Syslog ingest management and visualization platform. Receives syslog data over UDP/TCP, stores events in ClickHouse, and provides a React UI for search, alerting, and reporting.
 
-Part of the **pktSuite** platform.
+Part of the **pktSuite** platform (SSO with pktHub/pktFlow via a shared `suite_token`).
 
 ---
 
-## Quick Start (Docker)
+## Quick Start
+
+Requires a fresh Ubuntu Server 22.04/24.04 LTS host with `sudo` access, and Node.js 20.x LTS installed for the frontend build (not installed by `install.sh` — see [Requirements](#requirements)).
 
 ```bash
-# 1. Pull and start
-docker compose up -d
+# 1. Clone the repository
+git clone https://github.com/bsnwgit/pktlog.git
+cd pktlog
 
-# Required env var — set before starting:
-APP_ADMIN_PASSWORD=yourpassword docker compose up -d
+# 2. Run the installer — system packages, ClickHouse, Python deps, schema,
+#    config.yaml + secret key, admin user, systemd service (installed + started)
+bash install.sh
+# Prints the admin password at the end — save it, it is not shown again.
+
+# 3. Build and deploy the frontend (install.sh does not do this — see
+#    Installation § 8 below for why it's a separate step)
+cd frontend && npm install && npm run build && cd ..
+sudo cp -r frontend/dist /opt/pktlog/frontend/dist
+sudo systemctl restart pktlog
+
+# 4. Open the firewall (adjust if PKTLOG_INSTALL_DIR/port differ)
+sudo ufw allow 8768/tcp
+sudo ufw allow 8761/tcp
+sudo ufw allow 8761/udp
+
+# 5. Open http://<server-ip>:8768 and log in with the admin credentials from step 2
 ```
 
-HTTPS is available immediately at `https://<host>` with a self-signed certificate. Syslog ingest listens on port 514 (UDP + TCP).
+For a fully manual walkthrough of what `install.sh` does (e.g. to customize the install path or run steps individually), see [Installation](#installation).
 
-### Environment Variables
+### Environment variables
+
+All settings in `config.example.yaml` can also be passed as `PKTLOG_*` environment variables instead of editing `config.yaml` — environment variables take priority. Commonly used ones:
 
 | Variable | Default | Description |
-|---|---|---|
-| `APP_ADMIN_PASSWORD` | *(required)* | Admin user password |
-| `APP_ADMIN_USER` | `admin` | Admin username |
-| `APP_JWT_SECRET` | *(auto-generated)* | JWT signing secret |
-| `APP_HTTP_PORT` | `80` | HTTP port |
-| `APP_HTTPS_PORT` | `443` | HTTPS port |
-| `APP_SYSLOG_PORT` | `514` | Syslog ingest port (UDP + TCP) |
-
-ClickHouse is bundled via Docker Compose and requires no separate configuration.
-
-### Data Persistence
-
-All application data is stored in the `pktlog_data` Docker volume (`/app/data`):
-- `pktlog.db` — SQLite: users, settings, alert rules
-- `config.yaml` — runtime configuration (auto-managed)
-- `certs/` — TLS certificate and key
-- `logs/` — application logs
-
-ClickHouse data is in the `clickhouse_data` volume.
-
-### Custom TLS Certificate
-
-Replace the auto-generated cert by mounting your own:
-
-```yaml
-volumes:
-  - ./my-cert.pem:/app/data/certs/cert.pem:ro
-  - ./my-key.pem:/app/data/certs/key.pem:ro
-```
+|----------|---------|-------------|
+| `PKTLOG_CONFIG` | (none) | Path to `config.yaml` to load |
+| `PKTLOG_INSTALL_DIR` | (none) | Install directory `install.sh` deployed to; used by `pktlog.service` |
+| `PKTLOG_HOST` | `0.0.0.0` | Bind address |
+| `PKTLOG_PORT` | `8768` | Listen port (HTTP; HTTPS if SSL cert configured) |
+| `PKTLOG_DB_PATH` | `/opt/pktlog/pktlog.db` | SQLite app database path |
+| `PKTLOG_CLICKHOUSE_HOST` / `_PORT` / `_DATABASE` / `_USER` / `_PASSWORD` | `localhost` / `9000` / `pktlog` / `default` / `` | ClickHouse connection |
+| `PKTLOG_SYSLOG_PORT` | `8761` | Syslog ingest port (UDP + TCP) |
+| `PKTLOG_SECRET_KEY` | (required) | JWT signing key — `openssl rand -hex 32` |
+| `PKTLOG_CORS_ORIGINS` | `["*"]` | Restrict to your dashboard origin in production |
+| `PKTLOG_LOG_LEVEL` / `PKTLOG_LOG_FILE` | `info` / `/opt/pktlog/logs/pktlog.log` | Logging |
 
 ---
 
 ## Architecture
 
 ```
-Syslog Collectors ──UDP/TCP──► pktLog Ingest Listener
-                                     │
-                               Parse + Enrich
-                                     │
-                               ClickHouse (pktlog.syslog_events)
-                                     │
-                          FastAPI Backend (HTTPS :443)
-                                     │
-                          React Frontend (SPA)
+Syslog Collectors ──UDP/TCP:8761──► pktLog Ingest Listener
+                                          │
+                                    Parse + Enrich
+                                    (RFC 3164/5424 → org/group/site)
+                                          │
+                                    ClickHouse (pktlog.syslog_events)
+                                          │
+                                    FastAPI Backend (:8768)
+                                          │
+                                    React Frontend (SPA)
 ```
 
 ### Stack
@@ -74,36 +77,324 @@ Syslog Collectors ──UDP/TCP──► pktLog Ingest Listener
 | Backend | FastAPI (Python 3.11) |
 | Frontend | React + TypeScript + Tailwind |
 | Log storage | ClickHouse |
-| App database | SQLite (users, settings, alerts) |
-| Auth | Local + SAML/Okta SSO |
+| App database | SQLite (users, settings, alerts, device/collector registry) |
+| Auth | Local + SAML/Okta SSO + pktSuite `suite_token` |
 | Ingest | Async UDP + TCP (RFC 3164 / RFC 5424) |
 
 ---
 
-## Bare-Metal Installation
+## Requirements
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for bare-metal setup instructions.
+| Component | Version | Notes |
+|-----------|---------|-------|
+| OS | Ubuntu Server 22.04 LTS or 24.04 LTS | systemd required |
+| Python | 3.10+ (ships with Ubuntu 22.04/24.04) | venv created via `python3-venv` |
+| ClickHouse | 24.x+ (installed by `install.sh` from the official apt repo) | |
+| Node.js | 20.x LTS | Frontend build only, not installed by `install.sh` |
+| npm | 10+ | Frontend build only |
+| System packages | `python3-venv`, `python3-pip`, `libxmlsec1-dev`, `libxmlsec1-openssl`, `xmlsec1`, `pkg-config`, `gcc`, `openssl`, `curl`, `ca-certificates`, `gnupg`, `apt-transport-https` | Installed by `install.sh`; `libxmlsec1*`/`pkg-config`/`gcc` are required to build `python3-saml`'s xmlsec bindings |
+
+Node.js is not installed by `install.sh` — install it yourself before the frontend build step, e.g. via [NodeSource](https://github.com/nodesource/distributions):
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+### Python packages
+
+See [requirements.txt](requirements.txt). Key dependencies:
+
+- `fastapi`, `uvicorn[standard]` — web framework
+- `clickhouse-driver` — ClickHouse backend (default); `duckdb` is an alternate/experimental backend
+- `aiosqlite` — app database
+- `python-jose[cryptography]`, `passlib[bcrypt]` — JWT auth
+- `python3-saml`, `authlib` — SAML/OIDC SSO (Okta)
+- `anthropic` — AI assistant (optional, requires API key in Settings)
+
+### Frontend
+
+React 18, TypeScript, Vite, Tailwind CSS, Recharts.
 
 ---
 
-## Placeholder Reference
+## Installation
 
-Sensitive deployment data is replaced with placeholders throughout this repository:
+`install.sh` (see [Quick Start](#quick-start)) automates everything below except **step 8 (build the frontend)** and **step 10 (open the firewall)** — those are always manual. This section is the full manual walkthrough — useful to customize the install, run steps individually, or understand what the script does.
 
-| Placeholder | Meaning |
-|---|---|
-| `<PKT_SERVER_IP>` | pkt server IP address |
-| `<COLLECTOR_A_HOST>` | Collector A IP/hostname |
-| `<COLLECTOR_B_HOST>` | Collector B IP/hostname |
-| `<PKT_SERVER_SSH_KEY>` | SSH key filename for pkt server |
-| `<COLLECTOR_B_SSH_KEY>` | SSH key filename for Collector B |
-| `<DEPLOY_USER>` | OS user running the service |
-| `<INSTALL_DIR>` | Bare-metal install directory |
-| `<ORG_NAME>` | Organization name |
-| `<ORG_DOMAIN>` | Organization domain |
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/bsnwgit/pktlog.git
+cd pktlog
+```
+
+All commands below assume you're in the repo root unless otherwise noted.
+
+### 2. Create the install directory
+
+```bash
+INSTALL_DIR=/opt/pktlog
+sudo mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/logs"
+sudo chown "$(whoami):$(whoami)" "$INSTALL_DIR" "$INSTALL_DIR/logs"
+```
+
+`/opt` is root-owned by default, so this needs `sudo`. Steps 5–8 below run as your regular user against this now-owned directory; step 9 re-owns everything to whichever user/group the systemd service runs as.
+
+### 3. System packages + ClickHouse
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip \
+    libxmlsec1-dev libxmlsec1-openssl xmlsec1 pkg-config gcc \
+    curl ca-certificates gnupg apt-transport-https openssl
+
+# ClickHouse — official apt repo
+curl -fsSL https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key \
+    | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+ARCH="$(dpkg --print-architecture)"
+echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=${ARCH}] https://packages.clickhouse.com/deb stable main" \
+    | sudo tee /etc/apt/sources.list.d/clickhouse.list
+sudo apt-get update
+sudo apt-get install -y clickhouse-server clickhouse-client
+sudo systemctl enable --now clickhouse-server
+```
+
+`libxmlsec1-dev`, `libxmlsec1-openssl`, `pkg-config`, and `gcc` are required to build `python3-saml`'s xmlsec native bindings.
+
+### 4. Apply ClickHouse schema
+
+```bash
+clickhouse-client --multiquery < clickhouse/schema.sql
+```
+
+Creates the `pktlog` database and the `syslog_events` table. See the note at the top of [`clickhouse/schema.sql`](clickhouse/schema.sql) — this file was reconstructed from the app's insert code rather than an existing checked-in schema; if your running deployment's table differs, treat that as the source of truth.
+
+### 5. Install Python dependencies
+
+```bash
+python3 -m venv /opt/pktlog/venv
+/opt/pktlog/venv/bin/pip install -r requirements.txt
+```
+
+### 6. Copy application files
+
+`pktlog.service` runs `uvicorn app.main:app` with `WorkingDirectory=/opt/pktlog`, so the app package must live there:
+
+```bash
+cp -r app migrations clickhouse /opt/pktlog/
+```
+
+### 7. Configure
+
+```bash
+cp config.example.yaml /opt/pktlog/config.yaml
+# Edit config.yaml — set secret_key, db_path, cors_origins
+openssl rand -hex 32   # use this as secret_key
+```
+
+**config.yaml reference:**
+
+| Key | Default | Description |
+|-----|---------|--------------|
+| `host` | `0.0.0.0` | Bind address |
+| `port` | `8768` | Listen port |
+| `db_path` | `/opt/pktlog/pktlog.db` | SQLite database path |
+| `clickhouse_host` | `localhost` | ClickHouse host |
+| `clickhouse_port` | `9000` | ClickHouse native protocol port |
+| `clickhouse_database` | `pktlog` | ClickHouse database name |
+| `syslog_port` | `8761` | Syslog ingest port (UDP + TCP) |
+| `secret_key` | **CHANGE THIS** | JWT signing key (32+ random bytes) |
+| `cors_origins` | `["*"]` | Restrict to your dashboard origin in production |
+| `log_file` | `/opt/pktlog/logs/pktlog.log` | Log path |
+
+The initial `admin` user is created directly in SQLite (see step 8's Python snippet, or use `seed_admin.py` after install) — there is no `admin_user`/`admin_password` config.yaml field.
+
+### 8. Build the frontend
+
+Requires Node.js 20.x LTS. The frontend must be built on Linux — not on Windows (Windows `node_modules` lacks the Linux rollup native binary).
+
+```bash
+cp -r frontend /tmp/pktlog-fe
+cd /tmp/pktlog-fe
+npm install
+npm run build > /dev/null 2>&1 && echo "build ok" || echo "BUILD FAILED"
+cp -r dist /opt/pktlog/frontend/dist
+```
+
+### 9. Initialize the database and create the admin user
+
+```bash
+/opt/pktlog/venv/bin/python3 - << 'PYEOF'
+import asyncio, sys, os
+sys.path.insert(0, '/opt/pktlog')
+os.environ['PKTLOG_CONFIG'] = '/opt/pktlog/config.yaml'
+
+from app.database import init_db
+from app.auth.local import hash_password
+import aiosqlite
+from app.config import get_settings
+
+async def setup():
+    await init_db()
+    async with aiosqlite.connect(get_settings().db_path) as db:
+        hashed = hash_password('CHANGE_ME')
+        await db.execute(
+            "INSERT OR IGNORE INTO users (username, email, hashed_password, role) VALUES (?,?,?,?)",
+            ('admin', 'admin@pktlog.local', hashed, 'admin')
+        )
+        await db.commit()
+
+asyncio.run(setup())
+PYEOF
+```
+
+Replace `CHANGE_ME` with a real password before running this. `init_db()` also applies all `migrations/*.sql` files (idempotent — safe to call on every startup, which is what `app/main.py` does).
+
+### 10. Install and start the systemd service
+
+`pktlog.service` is a template — substitute the placeholders before installing it, or just run `install.sh` which does this for you:
+
+```bash
+sed \
+    -e "s#__INSTALL_DIR__#/opt/pktlog#g" \
+    -e "s#__LOG_DIR__#/opt/pktlog/logs#g" \
+    -e "s#__SERVICE_USER__#$(whoami)#g" \
+    -e "s#__SERVICE_GROUP__#$(whoami)#g" \
+    pktlog.service | sudo tee /etc/systemd/system/pktlog.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now pktlog
+sudo systemctl status pktlog
+```
+
+### 11. Open the firewall
+
+```bash
+sudo ufw allow 8768/tcp        # web UI / API
+sudo ufw allow 8761/tcp        # syslog ingest (TCP)
+sudo ufw allow 8761/udp        # syslog ingest (UDP)
+```
+
+### 12. Verify
+
+```bash
+curl -sk https://localhost:8768/api/health
+```
+
+Log in at `http://<server-ip>:8768` (or `https://` if SSL is configured) with the admin credentials from step 9.
 
 ---
 
-## CI/CD
+## SSL / HTTPS
 
-GitHub Actions builds and pushes the Docker image to `ghcr.io/bsnwgit/pktlog` on every push to `feature/docker` or `main` that touches application files.
+pktLog auto-detects SSL on startup. If `<INSTALL_DIR>/ssl/server.crt` and `server.key` exist, it starts in HTTPS mode; otherwise HTTP. `start.sh` implements this detection for manual/dev use; `pktlog.service`'s `ExecStart` runs `uvicorn` directly without SSL flags — for SSL under systemd, point `ExecStart` at `start.sh` instead, or add `--ssl-certfile`/`--ssl-keyfile` to the unit.
+
+**To enable HTTPS:** upload cert/key via **Settings → Integrations → SSL / TLS**, then restart the service.
+
+**To disable HTTPS:** remove the cert via the same Settings panel (or delete the files under `<INSTALL_DIR>/ssl/`), then restart.
+
+---
+
+## pktSuite Integration
+
+pktLog supports SSO with pktHub/pktFlow via a shared `suite_token`:
+
+- Generated on first call to `GET /api/suite/token`, or set/regenerated via the Settings UI
+- Stored in SQLite (`settings` table), not in `config.yaml`
+- Requests carrying a matching `X-Suite-Token` header are trusted as coming from pktHub (see `app/dependencies.py`, `app/api/suite.py`)
+
+The token must match what's registered in pktHub's App Registry. Treat it as a shared secret — do not commit a real value to any tracked file.
+
+---
+
+## Deployment
+
+### Backend changes
+
+1. Copy changed files to `/opt/pktlog/` on the server (same relative path as the repo), e.g. via `deploy_backend.py`
+2. `sudo systemctl restart pktlog`
+3. Verify: `curl -sk https://localhost:8768/api/health`
+
+### Frontend changes
+
+The frontend must be built on Linux — build on the server itself or a Linux CI runner, not on a Windows machine.
+
+```bash
+cp -r frontend /tmp/pktlog-fe
+cd /tmp/pktlog-fe
+npm install
+npm run build
+cp -r dist /opt/pktlog/frontend/dist
+sudo systemctl restart pktlog
+```
+
+`deploy_fe.py` automates this over SSH from a local checkout.
+
+### Operational scripts
+
+These live in the repo root and are SSH/SFTP-based tools for managing a remote deployment (all take `--host`/`--user`/`--key` flags or `PKTLOG_SSH_*` env vars — no hardcoded infrastructure):
+
+| Script | Purpose |
+|--------|---------|
+| `deploy_backend.py` | Push backend files and restart the service |
+| `deploy_fe.py` | Sync frontend source, build remotely, deploy `dist/` |
+| `deploy_initial.py` | Fresh install over SSH (mirrors `install.sh` minus system packages/ClickHouse) |
+| `check_server.py` | Quick remote status check (service, disk, logs) |
+| `seed_admin.py` | Create/reset the admin user's password remotely |
+| `backup.py` | Local 2-rotation backup of the project directory |
+
+---
+
+## Directory Structure
+
+```
+pktlog/
+├── app/
+│   ├── api/
+│   │   ├── auth.py          Login, SAML, token refresh
+│   │   ├── syslog.py        Syslog search/stats/timeseries
+│   │   ├── logs.py          App log viewer
+│   │   ├── collectors.py    Collector registry CRUD
+│   │   ├── settings.py      App settings CRUD
+│   │   ├── users.py         User management
+│   │   ├── system.py        Health, restart, SSL upload, backup
+│   │   ├── suite.py         pktSuite suite_token issuance/registration
+│   │   ├── widgets.py       Dashboard widgets
+│   │   └── pktlog.py        Misc endpoints
+│   ├── auth/                Local (JWT+bcrypt), Okta OIDC, SAML
+│   ├── alerts/               Alert evaluation engine
+│   ├── ingest/
+│   │   ├── listener.py       Async UDP+TCP syslog listener (port 8761)
+│   │   ├── parser.py         RFC 3164 / RFC 5424 parsing
+│   │   ├── normalizer.py     org/group/site enrichment
+│   │   └── writer.py         Batch writer → storage backend
+│   ├── models/syslog.py       SyslogRecord dataclass
+│   ├── storage/
+│   │   ├── clickhouse.py     ClickHouse backend (production)
+│   │   ├── duckdb.py         DuckDB backend (alternate)
+│   │   └── factory.py        Backend selector
+│   ├── config.py             Settings loader (YAML + env)
+│   ├── database.py           SQLite init + migration runner
+│   └── main.py                App factory, lifespan, router registration
+├── clickhouse/schema.sql       syslog_events table (MergeTree)
+├── frontend/src/
+│   ├── pages/                 Login, Dashboard, Alerts, Settings, Users, Logs, SyslogExplorer
+│   └── api/client.ts           Typed API client
+├── migrations/                 SQLite migration scripts (auto-applied on startup)
+├── install.sh                  Ubuntu install script (ClickHouse, venv, systemd service)
+├── config.example.yaml         Config file template
+├── pktlog.service               systemd unit template (placeholders filled in by install.sh)
+├── start.sh                     SSL-aware startup wrapper (manual/dev use)
+└── requirements.txt
+```
+
+---
+
+## Security Notes
+
+- Change `secret_key` in `config.yaml` (or `PKTLOG_SECRET_KEY` env var) before production use — `openssl rand -hex 32`
+- Change the default admin password immediately after first login
+- `cors_origins` should be restricted to your dashboard origin in production
+- The pktSuite `suite_token` is a shared secret across pktHub/pktFlow/pktLog — never commit a real value to a tracked file, and rotating it requires updating it in all three services simultaneously
+- If a `config.yaml` with a real `secret_key` or `suite_token` is ever accidentally committed, treat both as compromised: rotate `secret_key` immediately (it only affects this service), but coordinate before rotating `suite_token` since it will break SSO for pktHub/pktFlow until updated everywhere

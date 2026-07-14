@@ -54,13 +54,15 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 -- Pre-populate with known samplers from audit
+-- Example seed rows — replace with your own device inventory (site labels
+-- and IPs below are placeholders, not real infrastructure).
 INSERT OR IGNORE INTO devices (ip, name, site) VALUES
-    ('192.168.44.7',  'Site-B-fw1',  'Site-B'),
-    ('192.168.44.8',  'Site-B-fw2',  'Site-B'),
-    ('172.27.28.88',  'Site-A-sw1',      'Site-A'),
-    ('172.27.28.89',  'Site-A-fw1',      'Site-A'),
-    ('10.19.56.186',  'AWS-az2a',     'aws'),
-    ('10.19.81.236',  'AWS-az2b',     'aws');
+    ('10.0.1.7',   'Site-A-fw1',   'site_a'),
+    ('10.0.1.8',   'Site-A-fw2',   'site_a'),
+    ('10.0.2.10',  'Site-B-sw1',   'site_b'),
+    ('10.0.2.11',  'Site-B-fw1',   'site_b'),
+    ('10.0.3.20',  'Site-C-az2a',  'site_c'),
+    ('10.0.3.21',  'Site-C-az2b',  'site_c');
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
