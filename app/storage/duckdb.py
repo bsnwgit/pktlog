@@ -40,7 +40,7 @@ Scaling
 ───────
 READ_POOL_SIZE can be increased for heavier read workloads.  Writes are
 inherently single-writer in DuckDB (OLAP workloads do not need concurrent
-writers); the single write thread is not a bottleneck at typical NetFlow
+writers); the single write thread is not a bottleneck at typical syslog
 ingest rates.
 """
 from __future__ import annotations
@@ -56,11 +56,6 @@ from typing import Optional
 import duckdb
 
 from app.config import get_settings
-from app.models.flow import (
-    FlowRecord, TopTalker, TimeSeriesPoint,
-    DeviceSummary, FlowSearchResult,
-    TopologyNode, TopologyEdge, PortStat, ProtocolStat,
-)
 from app.storage.base import StorageBackend
 
 log = logging.getLogger("pktlog.storage.duckdb")
@@ -81,34 +76,34 @@ _READ_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
 )
 
 # ── Schema ────────────────────────────────────────────────────────────────────
+# Column order must match SyslogRecord.to_clickhouse_row()
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS flows (
+CREATE TABLE IF NOT EXISTS syslog_events (
     timestamp        TIMESTAMPTZ NOT NULL,
-    sampler_ip       VARCHAR     NOT NULL,
-    sampler_name     VARCHAR     DEFAULT '',
-    site             VARCHAR     DEFAULT '',
-    src_ip           VARCHAR     DEFAULT '0.0.0.0',
-    dst_ip           VARCHAR     DEFAULT '0.0.0.0',
-    src_port         INTEGER     DEFAULT 0,
-    dst_port         INTEGER     DEFAULT 0,
-    protocol         INTEGER     DEFAULT 0,
-    bytes            BIGINT      DEFAULT 0,
-    packets          BIGINT      DEFAULT 0,
-    duration_ms      INTEGER     DEFAULT 0,
-    tcp_flags        INTEGER     DEFAULT 0,
-    tos              INTEGER     DEFAULT 0,
-    input_if         INTEGER     DEFAULT 0,
-    output_if        INTEGER     DEFAULT 0,
-    next_hop         VARCHAR     DEFAULT '0.0.0.0',
-    src_as           INTEGER     DEFAULT 0,
-    dst_as           INTEGER     DEFAULT 0,
-    flow_dir         INTEGER     DEFAULT 2
+    received_at      TIMESTAMPTZ NOT NULL,
+    source_ip        VARCHAR     DEFAULT '',
+    source_name      VARCHAR     DEFAULT '',
+    facility         INTEGER     DEFAULT 0,
+    facility_name    VARCHAR     DEFAULT '',
+    severity         INTEGER     DEFAULT 6,
+    severity_name    VARCHAR     DEFAULT 'info',
+    program          VARCHAR     DEFAULT '',
+    pid              VARCHAR     DEFAULT '',
+    message          VARCHAR     DEFAULT '',
+    raw              VARCHAR     DEFAULT '',
+    collector_ip     VARCHAR     DEFAULT '',
+    collector_name   VARCHAR     DEFAULT '',
+    org              VARCHAR     DEFAULT '',
+    log_group        VARCHAR     DEFAULT '',
+    site             VARCHAR     DEFAULT ''
 );
 
-CREATE INDEX IF NOT EXISTS idx_flows_ts      ON flows (timestamp);
-CREATE INDEX IF NOT EXISTS idx_flows_sampler ON flows (sampler_ip);
-CREATE INDEX IF NOT EXISTS idx_flows_src_ip  ON flows (src_ip);
-CREATE INDEX IF NOT EXISTS idx_flows_dst_ip  ON flows (dst_ip);
+CREATE INDEX IF NOT EXISTS idx_syslog_ts            ON syslog_events (timestamp);
+CREATE INDEX IF NOT EXISTS idx_syslog_source_ip     ON syslog_events (source_ip);
+CREATE INDEX IF NOT EXISTS idx_syslog_collector_ip  ON syslog_events (collector_ip);
+CREATE INDEX IF NOT EXISTS idx_syslog_org           ON syslog_events (org);
+CREATE INDEX IF NOT EXISTS idx_syslog_log_group     ON syslog_events (log_group);
+CREATE INDEX IF NOT EXISTS idx_syslog_site          ON syslog_events (site);
 """
 
 
@@ -204,7 +199,7 @@ class DuckDBBackend(StorageBackend):
         self._wconn: Optional[duckdb.DuckDBPyConnection] = None
         self._read_pool: Optional[_ReadPool] = None
         self._db_path: str = getattr(
-            settings, "duckdb_path", "/mnt/software/pktlog/flows.duckdb"
+            settings, "duckdb_path", "/mnt/software/pktlog/pktlog_data.duckdb"
         )
 
     # ── Async dispatch helpers ─────────────────────────────────────────────────
@@ -296,156 +291,42 @@ class DuckDBBackend(StorageBackend):
             "in_use": self._read_pool.size - self._read_pool.available,
         }
 
-    # ── Insert ────────────────────────────────────────────────────────────────
+    # ── Write ─────────────────────────────────────────────────────────────────
 
-    async def insert_flows(self, flows: list[FlowRecord]) -> None:
-        if not flows:
-            return
+    async def insert_batch(self, records: list) -> int:
+        """Insert a batch of SyslogRecord objects. Returns count inserted."""
+        if not records:
+            return 0
 
         def _insert():
-            rows = [f.to_clickhouse_row() for f in flows]
+            rows = [r.to_clickhouse_row() for r in records]
             self._wconn.executemany(
-                "INSERT INTO flows VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO syslog_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
+            return len(rows)
 
-        await self._write(_insert)
+        return await self._write(_insert)
 
-    # ── Dashboard — device summaries ──────────────────────────────────────────
+    # ── Search ────────────────────────────────────────────────────────────────
 
-    async def get_device_summaries(self) -> list[DeviceSummary]:
-        def _query():
-            cutoff_24h = datetime.now(tz=timezone.utc) - timedelta(hours=24)
-            cutoff_1h  = datetime.now(tz=timezone.utc) - timedelta(hours=1)
-            with self._read_pool.acquire() as conn:
-                return conn.execute("""
-                    SELECT
-                        sampler_ip,
-                        ARG_MAX(sampler_name, timestamp)                      AS sampler_name,
-                        ARG_MAX(site,         timestamp)                      AS site,
-                        SUM(CASE WHEN timestamp >= ? THEN bytes   ELSE 0 END) AS bytes_last_hour,
-                        SUM(CASE WHEN timestamp >= ? THEN packets ELSE 0 END) AS packets_last_hour,
-                        COUNT(CASE WHEN timestamp >= ? THEN 1     END)        AS flows_last_hour,
-                        MAX(timestamp)                                         AS last_seen
-                    FROM flows
-                    WHERE timestamp >= ?
-                    GROUP BY sampler_ip
-                    ORDER BY sampler_name
-                """, [cutoff_1h, cutoff_1h, cutoff_1h, cutoff_24h]).fetchall()
-
-        rows = await self._read(_query) or []
-        return [
-            DeviceSummary(
-                sampler_ip=row[0],
-                sampler_name=row[1] or "",
-                site=row[2] or "",
-                bytes_last_hour=row[3] or 0,
-                packets_last_hour=row[4] or 0,
-                flows_last_hour=row[5] or 0,
-                flows_per_sec=round((row[5] or 0) / 3600, 2),
-                last_seen=row[6],
-            )
-            for row in rows
-        ]
-
-    # ── Top talkers ───────────────────────────────────────────────────────────
-
-    async def get_top_talkers(
+    async def search(
         self,
-        sampler_ip: Optional[str],
-        start: datetime,
-        end: datetime,
-        limit: int = 50,
-    ) -> list[TopTalker]:
-        def _query():
-            where_extra = "AND sampler_ip = ?" if sampler_ip else ""
-            params: list = [start, end]
-            if sampler_ip:
-                params.append(sampler_ip)
-            params.append(limit)
-            with self._read_pool.acquire() as conn:
-                return conn.execute(f"""
-                    SELECT src_ip, dst_ip, dst_port, protocol,
-                           SUM(bytes)   AS bytes,
-                           SUM(packets) AS packets,
-                           COUNT(*)     AS flow_count
-                    FROM flows
-                    WHERE timestamp BETWEEN ? AND ? {where_extra}
-                    GROUP BY src_ip, dst_ip, dst_port, protocol
-                    ORDER BY bytes DESC
-                    LIMIT ?
-                """, params).fetchall()
-
-        rows = await self._read(_query) or []
-        return [
-            TopTalker(
-                src_ip=r[0], dst_ip=r[1], dst_port=r[2], protocol=r[3],
-                bytes=r[4], packets=r[5], flow_count=r[6],
-            )
-            for r in rows
-        ]
-
-    # ── Time series ───────────────────────────────────────────────────────────
-
-    async def get_time_series(
-        self,
-        sampler_ip: Optional[str],
-        start: datetime,
-        end: datetime,
-        bucket_seconds: int = 60,
-        dst_port: Optional[int] = None,
-        protocol: Optional[int] = None,
-        site: Optional[str] = None,
-    ) -> list[TimeSeriesPoint]:
-        def _query():
-            extra_parts: list[str] = []
-            extra_params: list = []
-            if sampler_ip:
-                extra_parts.append("sampler_ip = ?"); extra_params.append(sampler_ip)
-            if dst_port is not None:
-                extra_parts.append("dst_port = ?"); extra_params.append(dst_port)
-            if protocol is not None:
-                extra_parts.append("protocol = ?"); extra_params.append(protocol)
-            if site:
-                extra_parts.append("site = ?"); extra_params.append(site)
-            where_extra = (" AND " + " AND ".join(extra_parts)) if extra_parts else ""
-            params: list = [bucket_seconds, bucket_seconds, start, end] + extra_params
-            with self._read_pool.acquire() as conn:
-                return conn.execute(f"""
-                    SELECT
-                        epoch_ms(
-                            (epoch_ms(timestamp) / (? * 1000)) * (? * 1000)
-                        )::TIMESTAMPTZ  AS ts,
-                        SUM(bytes)      AS bytes,
-                        SUM(packets)    AS packets,
-                        COUNT(*)        AS flow_count
-                    FROM flows
-                    WHERE timestamp BETWEEN ? AND ? {where_extra}
-                    GROUP BY ts
-                    ORDER BY ts
-                """, params).fetchall()
-
-        rows = await self._read(_query) or []
-        return [
-            TimeSeriesPoint(timestamp=r[0], bytes=r[1], packets=r[2], flow_count=r[3])
-            for r in rows
-        ]
-
-    # ── Flow search ───────────────────────────────────────────────────────────
-
-    async def search_flows(
-        self,
-        src_ip: Optional[str] = None,
-        dst_ip: Optional[str] = None,
-        src_port: Optional[int] = None,
-        dst_port: Optional[int] = None,
-        protocol: Optional[int] = None,
-        sampler_ip: Optional[str] = None,
+        *,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        limit: int = 500,
+        source_ip: Optional[str] = None,
+        collector_name: Optional[str] = None,
+        org: Optional[str] = None,
+        log_group: Optional[str] = None,
+        site: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        facility: Optional[int] = None,
+        program: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: int = 200,
         offset: int = 0,
-    ) -> list[FlowSearchResult]:
+    ) -> dict:
         def _query():
             conditions: list[str] = []
             params: list = []
@@ -453,71 +334,143 @@ class DuckDBBackend(StorageBackend):
                 conditions.append("timestamp >= ?"); params.append(start)
             if end:
                 conditions.append("timestamp <= ?"); params.append(end)
-            if src_ip:
-                conditions.append("src_ip = ?"); params.append(src_ip)
-            if dst_ip:
-                conditions.append("dst_ip = ?"); params.append(dst_ip)
-            if src_port is not None:
-                conditions.append("src_port = ?"); params.append(src_port)
-            if dst_port is not None:
-                conditions.append("dst_port = ?"); params.append(dst_port)
-            if protocol is not None:
-                conditions.append("protocol = ?"); params.append(protocol)
-            if sampler_ip:
-                conditions.append("sampler_ip = ?"); params.append(sampler_ip)
+            if source_ip:
+                conditions.append("source_ip = ?"); params.append(source_ip)
+            if collector_name:
+                conditions.append("collector_name = ?"); params.append(collector_name)
+            if org:
+                conditions.append("org = ?"); params.append(org)
+            if log_group:
+                conditions.append("log_group = ?"); params.append(log_group)
+            if site:
+                conditions.append("site = ?"); params.append(site)
+            if severity_max is not None:
+                conditions.append("severity <= ?"); params.append(severity_max)
+            if facility is not None:
+                conditions.append("facility = ?"); params.append(facility)
+            if program:
+                conditions.append("program = ?"); params.append(program)
+            if search:
+                conditions.append("message ILIKE ?"); params.append(f"%{search}%")
+
             where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-            params += [limit, offset]
+
             with self._read_pool.acquire() as conn:
-                return conn.execute(f"""
-                    SELECT timestamp, sampler_ip, sampler_name,
-                           src_ip, dst_ip, src_port, dst_port, protocol,
-                           bytes, packets, duration_ms, tcp_flags, tos,
-                           input_if, output_if, next_hop, src_as, dst_as, flow_dir
-                    FROM flows
+                total = conn.execute(
+                    f"SELECT COUNT(*) FROM syslog_events {where}", params
+                ).fetchone()[0]
+
+                rows = conn.execute(f"""
+                    SELECT timestamp, received_at, source_ip, source_name,
+                           facility, facility_name, severity, severity_name,
+                           program, pid, message, raw,
+                           collector_ip, collector_name, org, log_group, site
+                    FROM syslog_events
                     {where}
                     ORDER BY timestamp DESC
                     LIMIT ? OFFSET ?
+                """, params + [limit, offset]).fetchall()
+
+            return total, rows
+
+        result = await self._read(_query)
+        total, rows = result if result else (0, [])
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "records": [_row_to_dict(r) for r in rows],
+        }
+
+    # ── Aggregations ──────────────────────────────────────────────────────────
+
+    async def count_by_severity(self, hours: int = 24) -> list[dict]:
+        def _query():
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            with self._read_pool.acquire() as conn:
+                return conn.execute("""
+                    SELECT severity, severity_name, COUNT(*) AS cnt
+                    FROM syslog_events
+                    WHERE timestamp >= ?
+                    GROUP BY severity, severity_name
+                    ORDER BY severity ASC
+                """, [cutoff]).fetchall()
+
+        rows = await self._read(_query) or []
+        return [{"severity": r[0], "severity_name": r[1], "count": r[2]} for r in rows]
+
+    async def count_by_host(self, hours: int = 24, limit: int = 20) -> list[dict]:
+        def _query():
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            with self._read_pool.acquire() as conn:
+                return conn.execute("""
+                    SELECT source_ip, source_name, log_group, COUNT(*) AS cnt
+                    FROM syslog_events
+                    WHERE timestamp >= ?
+                    GROUP BY source_ip, source_name, log_group
+                    ORDER BY cnt DESC
+                    LIMIT ?
+                """, [cutoff, limit]).fetchall()
+
+        rows = await self._read(_query) or []
+        return [{"source_ip": r[0], "source_name": r[1], "log_group": r[2], "count": r[3]} for r in rows]
+
+    async def top_programs(self, hours: int = 24, limit: int = 20) -> list[dict]:
+        def _query():
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            with self._read_pool.acquire() as conn:
+                return conn.execute("""
+                    SELECT program, COUNT(*) AS cnt
+                    FROM syslog_events
+                    WHERE timestamp >= ? AND program != ''
+                    GROUP BY program
+                    ORDER BY cnt DESC
+                    LIMIT ?
+                """, [cutoff, limit]).fetchall()
+
+        rows = await self._read(_query) or []
+        return [{"program": r[0], "count": r[1]} for r in rows]
+
+    async def timeseries(
+        self,
+        hours: int = 24,
+        bucket_minutes: int = 5,
+        log_group: Optional[str] = None,
+    ) -> list[dict]:
+        def _query():
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            bucket_ms = bucket_minutes * 60 * 1000
+            extra = "AND log_group = ?" if log_group else ""
+            params: list = [bucket_ms, bucket_ms, cutoff]
+            if log_group:
+                params.append(log_group)
+            with self._read_pool.acquire() as conn:
+                return conn.execute(f"""
+                    SELECT
+                        epoch_ms((epoch_ms(timestamp) // ?) * ?)::TIMESTAMPTZ AS bucket,
+                        COUNT(*) AS cnt
+                    FROM syslog_events
+                    WHERE timestamp >= ? {extra}
+                    GROUP BY bucket
+                    ORDER BY bucket ASC
                 """, params).fetchall()
 
         rows = await self._read(_query) or []
-        return [
-            FlowSearchResult(
-                timestamp=r[0], sampler_ip=r[1], sampler_name=r[2] or "",
-                src_ip=r[3], dst_ip=r[4], src_port=r[5], dst_port=r[6], protocol=r[7],
-                bytes=r[8], packets=r[9], duration_ms=r[10],
-                tcp_flags=r[11] or 0, tos=r[12] or 0,
-                input_if=r[13] or 0, output_if=r[14] or 0,
-                next_hop=r[15] or "0.0.0.0",
-                src_as=r[16] or 0, dst_as=r[17] or 0, flow_dir=r[18] or 2,
-            )
-            for r in rows
-        ]
+        return [{"bucket": r[0].isoformat(), "count": r[1]} for r in rows]
 
-    # ── Rates ─────────────────────────────────────────────────────────────────
-
-    async def get_flows_per_sec(self) -> float:
+    async def collector_last_seen(self) -> list[dict]:
+        """Last timestamp per collector — used for data-gap alerts."""
         def _query():
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(seconds=60)
             with self._read_pool.acquire() as conn:
-                return conn.execute(
-                    "SELECT COUNT(*) / 60.0 FROM flows WHERE timestamp >= ?", [cutoff]
-                ).fetchall()
-
-        rows = await self._read(_query)
-        return float(rows[0][0]) if rows else 0.0
-
-    async def get_sampler_last_seen(self) -> dict[str, datetime]:
-        def _query():
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(days=1)
-            with self._read_pool.acquire() as conn:
-                return conn.execute(
-                    "SELECT sampler_ip, MAX(timestamp) FROM flows "
-                    "WHERE timestamp >= ? GROUP BY sampler_ip",
-                    [cutoff],
-                ).fetchall()
+                return conn.execute("""
+                    SELECT collector_ip, collector_name, MAX(timestamp) AS last_seen
+                    FROM syslog_events
+                    GROUP BY collector_ip, collector_name
+                    ORDER BY last_seen DESC
+                """).fetchall()
 
         rows = await self._read(_query) or []
-        return {r[0]: r[1] for r in rows}
+        return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat()} for r in rows]
 
     # ── Retention ─────────────────────────────────────────────────────────────
 
@@ -528,257 +481,34 @@ class DuckDBBackend(StorageBackend):
             # COUNT(*) of deleted rows via a subquery — DuckDB does not support
             # RETURNING in DELETE; fetch the count before deleting instead.
             count = self._wconn.execute(
-                "SELECT COUNT(*) FROM flows WHERE timestamp < ?", [cutoff]
+                "SELECT COUNT(*) FROM syslog_events WHERE timestamp < ?", [cutoff]
             ).fetchone()[0]
-            self._wconn.execute("DELETE FROM flows WHERE timestamp < ?", [cutoff])
+            self._wconn.execute("DELETE FROM syslog_events WHERE timestamp < ?", [cutoff])
             return count
 
         n = await self._write(_delete)
         log.info("DuckDB retention purge: removed %d rows older than %d days", n, days)
 
-    # ── Topology ──────────────────────────────────────────────────────────────
 
-    async def get_topology(
-        self,
-        start: datetime,
-        end: datetime,
-        sampler_ip: Optional[str] = None,
-        min_bytes: int = 0,
-        limit: int = 200,
-    ) -> tuple[list[TopologyNode], list[TopologyEdge]]:
-        def _query():
-            where_parts = ["timestamp BETWEEN ? AND ?"]
-            params: list = [start, end]
-            if sampler_ip:
-                where_parts.append("sampler_ip = ?")
-                params.append(sampler_ip)
-            where = " AND ".join(where_parts)
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-            with self._read_pool.acquire() as conn:
-                edge_rows = conn.execute(f"""
-                    SELECT src_ip, dst_ip,
-                           SUM(bytes)    AS bytes,
-                           SUM(packets)  AS packets,
-                           COUNT(*)      AS flows,
-                           MIN(protocol) AS protocol,
-                           MIN(dst_port) AS dst_port
-                    FROM flows
-                    WHERE {where}
-                    GROUP BY src_ip, dst_ip
-                    HAVING SUM(bytes) >= ?
-                    ORDER BY bytes DESC
-                    LIMIT ?
-                """, params + [min_bytes, limit]).fetchall()
-
-                sampler_rows = conn.execute(f"""
-                    SELECT sampler_ip,
-                           ARG_MAX(sampler_name, timestamp) AS name,
-                           ARG_MAX(site,         timestamp) AS site
-                    FROM flows
-                    WHERE {where}
-                    GROUP BY sampler_ip
-                """, params).fetchall()
-
-            return edge_rows, sampler_rows
-
-        result = await self._read(_query)
-        edge_rows, sampler_rows = result if result else ([], [])
-
-        sampler_map = {r[0]: {"name": r[1] or "", "site": r[2] or ""} for r in sampler_rows}
-
-        edges: list[TopologyEdge] = []
-        node_bytes: dict[str, int] = {}
-        node_flows: dict[str, int] = {}
-        for r in edge_rows:
-            src, dst = r[0], r[1]
-            edges.append(TopologyEdge(
-                source=src, target=dst,
-                bytes=r[2], packets=r[3], flows=r[4],
-                protocol=r[5] or 0, dst_port=r[6] or 0,
-            ))
-            node_bytes[src] = node_bytes.get(src, 0) + r[2]
-            node_bytes[dst] = node_bytes.get(dst, 0) + r[2]
-            node_flows[src] = node_flows.get(src, 0) + r[4]
-            node_flows[dst] = node_flows.get(dst, 0) + r[4]
-
-        nodes: list[TopologyNode] = []
-        for ip in set(node_bytes.keys()):
-            info = sampler_map.get(ip, {})
-            nodes.append(TopologyNode(
-                id=ip,
-                sampler_name=info.get("name", ""),
-                site=info.get("site", ""),
-                bytes=node_bytes.get(ip, 0),
-                flows=node_flows.get(ip, 0),
-                is_sampler=ip in sampler_map,
-            ))
-
-        return nodes, edges
-
-    # ── Protocol distribution ──────────────────────────────────────────────────
-
-    async def get_protocol_distribution(
-        self,
-        start: datetime,
-        end: datetime,
-        sampler_ip: Optional[str] = None,
-    ) -> list:
-        def _query():
-            where_parts = ["timestamp BETWEEN ? AND ?"]
-            params: list = [start, end]
-            if sampler_ip:
-                where_parts.append("sampler_ip = ?")
-                params.append(sampler_ip)
-            where = " AND ".join(where_parts)
-            with self._read_pool.acquire() as conn:
-                return conn.execute(f"""
-                    SELECT protocol,
-                           SUM(bytes)   AS total_bytes,
-                           SUM(packets) AS total_packets,
-                           COUNT(*)     AS flow_count
-                    FROM flows
-                    WHERE {where}
-                    GROUP BY protocol
-                    ORDER BY total_bytes DESC
-                    LIMIT 20
-                """, params).fetchall()
-
-        rows = await self._read(_query) or []
-        proto_names = {
-            1: "ICMP", 2: "IGMP", 6: "TCP", 17: "UDP",
-            47: "GRE", 50: "ESP", 51: "AH", 58: "ICMPv6",
-            89: "OSPF", 132: "SCTP",
-        }
-        total_bytes = sum(r[1] for r in rows) or 1
-        return [
-            ProtocolStat(
-                protocol=r[0],
-                name=proto_names.get(r[0], f"Proto {r[0]}"),
-                bytes=r[1],
-                packets=r[2],
-                flow_count=r[3],
-                pct_bytes=round(r[1] / total_bytes * 100, 1),
-            )
-            for r in rows
-        ]
-
-    async def purge_sampler(self, sampler_ip: str) -> None:
-        def _delete():
-            self._wconn.execute("DELETE FROM flows WHERE sampler_ip = ?", [sampler_ip])
-        await self._write(_delete)
-        log.info("DuckDB: purged all flows for sampler_ip=%s", sampler_ip)
-
-    # ── Top ports ─────────────────────────────────────────────────────────────
-
-    async def get_top_ports(
-        self,
-        start: datetime,
-        end: datetime,
-        sampler_ip: Optional[str] = None,
-        site: Optional[str] = None,
-        limit: int = 50,
-    ) -> list:
-        def _query():
-            where_parts = ["timestamp BETWEEN ? AND ?"]
-            params: list = [start, end]
-            if sampler_ip:
-                where_parts.append("sampler_ip = ?"); params.append(sampler_ip)
-            if site:
-                where_parts.append("site = ?"); params.append(site)
-            where = " AND ".join(where_parts)
-            params.append(limit)
-            with self._read_pool.acquire() as conn:
-                return conn.execute(f"""
-                    SELECT dst_port, protocol,
-                           SUM(bytes)   AS total_bytes,
-                           SUM(packets) AS total_packets,
-                           COUNT(*)     AS flow_count
-                    FROM flows
-                    WHERE {where}
-                    GROUP BY dst_port, protocol
-                    ORDER BY total_bytes DESC
-                    LIMIT ?
-                """, params).fetchall()
-
-        rows = await self._read(_query) or []
-        proto_names = {
-            1: "ICMP", 2: "IGMP", 6: "TCP", 17: "UDP",
-            47: "GRE", 50: "ESP", 51: "AH", 58: "ICMPv6",
-            89: "OSPF", 132: "SCTP",
-        }
-        port_services = {
-            20: "FTP-data", 21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP",
-            53: "DNS", 67: "DHCP", 68: "DHCP", 80: "HTTP", 110: "POP3",
-            123: "NTP", 143: "IMAP", 161: "SNMP", 162: "SNMP-trap",
-            179: "BGP", 389: "LDAP", 443: "HTTPS", 445: "SMB",
-            514: "Syslog", 636: "LDAPS", 993: "IMAPS", 995: "POP3S",
-            1194: "OpenVPN", 1433: "MSSQL", 1521: "Oracle",
-            3306: "MySQL", 3389: "RDP", 5432: "PostgreSQL",
-            5900: "VNC", 6379: "Redis", 8080: "HTTP-alt", 8443: "HTTPS-alt",
-            27017: "MongoDB",
-        }
-        total_bytes = sum(r[2] for r in rows) or 1
-        return [
-            PortStat(
-                port=r[0],
-                protocol=r[1],
-                proto_name=proto_names.get(r[1], f"Proto {r[1]}"),
-                service_name=port_services.get(r[0], ""),
-                bytes=r[2],
-                packets=r[3],
-                flow_count=r[4],
-                pct_bytes=round(r[2] / total_bytes * 100, 1),
-            )
-            for r in rows
-        ]
-
-    async def get_metric_in_window(self, metric: str, window_min: int, sampler_ip=None) -> float:
-        raise NotImplementedError("get_metric_in_window not implemented for DuckDB")
-
-    async def get_metric_baseline(self, metric: str, baseline_days: int, window_min: int, sampler_ip=None) -> float:
-        raise NotImplementedError("get_metric_baseline not implemented for DuckDB")
-
-    async def get_port_flow_count(self, port: int, protocol, direction: str, window_min: int, sampler_ip=None) -> int:
-        raise NotImplementedError("get_port_flow_count not implemented for DuckDB")
-
-    async def get_top_talker_in_window(self, metric, window_min, sampler_ip=None) -> tuple[str, float]:
-        raise NotImplementedError("get_top_talker_in_window not implemented for DuckDB")
-
-    async def get_elephant_flow_stats(self, threshold_bytes, window_min, sampler_ip=None) -> tuple[int, float]:
-        raise NotImplementedError("get_elephant_flow_stats not implemented for DuckDB")
-
-    async def get_inter_site_metric(self, metric, window_min, site_a=None, site_b=None) -> float:
-        raise NotImplementedError("get_inter_site_metric not implemented for DuckDB")
-
-    async def get_top_connection_count(self, window_min, sampler_ip=None) -> tuple[str, int]:
-        raise NotImplementedError("get_top_connection_count not implemented for DuckDB")
-
-    async def get_top_unique_dst_ports(self, window_min, sampler_ip=None) -> tuple[str, int]:
-        raise NotImplementedError("get_top_unique_dst_ports not implemented for DuckDB")
-
-    async def get_top_unique_dst_ips(self, window_min, sampler_ip=None, src_subnet=None) -> tuple[str, int]:
-        raise NotImplementedError("get_top_unique_dst_ips not implemented for DuckDB")
-
-    async def get_unexpected_proto_count(self, port, expected_proto, direction, window_min, sampler_ip=None) -> int:
-        raise NotImplementedError("get_unexpected_proto_count not implemented for DuckDB")
-
-    async def get_inter_site_top_contributors(self, metric, window_min, site_a=None, site_b=None, limit=5) -> list:
-        raise NotImplementedError("get_inter_site_top_contributors not implemented for DuckDB")
-
-    async def get_elephant_flow_top(self, threshold_bytes, window_min, sampler_ip=None, limit=5) -> list:
-        raise NotImplementedError("get_elephant_flow_top not implemented for DuckDB")
-
-    async def get_threshold_top_ips(self, metric, window_min, sampler_ip=None, limit=5) -> list:
-        raise NotImplementedError("get_threshold_top_ips not implemented for DuckDB")
-
-    async def get_port_flow_top_ips(self, port, protocol, direction, window_min, sampler_ip=None, limit=5) -> list:
-        raise NotImplementedError("get_port_flow_top_ips not implemented for DuckDB")
-
-    async def get_unexpected_proto_top_ips(self, port, expected_proto, direction, window_min, sampler_ip=None, limit=5) -> list:
-        raise NotImplementedError("get_unexpected_proto_top_ips not implemented for DuckDB")
-
-    async def get_top_dsts_for_ip(self, src_ip, window_min, sampler_ip=None, limit=5) -> list:
-        raise NotImplementedError("get_top_dsts_for_ip not implemented for DuckDB")
-
-    async def get_top_ports_for_ip(self, src_ip, window_min, sampler_ip=None, limit=10) -> list:
-        raise NotImplementedError("get_top_ports_for_ip not implemented for DuckDB")
+def _row_to_dict(r: tuple) -> dict:
+    return {
+        "timestamp":      r[0].isoformat() if r[0] else None,
+        "received_at":    r[1].isoformat() if r[1] else None,
+        "source_ip":      r[2],
+        "source_name":    r[3],
+        "facility":       r[4],
+        "facility_name":  r[5],
+        "severity":       r[6],
+        "severity_name":  r[7],
+        "program":        r[8],
+        "pid":            r[9],
+        "message":        r[10],
+        "raw":            r[11],
+        "collector_ip":   r[12],
+        "collector_name": r[13],
+        "org":            r[14],
+        "log_group":      r[15],
+        "site":           r[16],
+    }
