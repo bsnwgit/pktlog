@@ -1,28 +1,72 @@
-"""Check current pktlog state on O2."""
-import paramiko, sys
+"""Check current pktlog service state on the remote server.
+
+Usage:
+  PKTLOG_SSH_HOST=<host> PKTLOG_SSH_USER=<user> PKTLOG_SSH_KEY=<path> python3 check_server.py
+or:
+  python3 check_server.py --host <host> --user <user> --key <path> [--install-dir /opt/pktlog]
+"""
+import argparse
+import os
+import sys
+
+import paramiko
+
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-KEY_PATH = r'C:\Users\user\.ssh\<PKT_SERVER_SSH_KEY>'
-key = paramiko.RSAKey.from_private_key_file(KEY_PATH)
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect('<PKT_SERVER_IP>', username='<DEPLOY_USER>', pkey=key, timeout=15, banner_timeout=15)
-print('Connected')
 
-def run(label, cmd):
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default=os.environ.get("PKTLOG_SSH_HOST"),
+                         help="SSH host/IP of the pktlog server")
+    parser.add_argument("--user", default=os.environ.get("PKTLOG_SSH_USER"),
+                         help="SSH username")
+    parser.add_argument("--key", default=os.environ.get("PKTLOG_SSH_KEY"),
+                         help="Path to SSH private key")
+    parser.add_argument("--install-dir", default=os.environ.get("PKTLOG_INSTALL_DIR", "/opt/pktlog"),
+                         help="Remote pktlog install directory (default: /opt/pktlog)")
+    parser.add_argument("--log-dir", default=os.environ.get("PKTLOG_LOG_DIR"),
+                         help="Remote pktlog log directory (default: <install-dir>/logs)")
+    args = parser.parse_args()
+    if not args.log_dir:
+        args.log_dir = f"{args.install_dir}/logs"
+    missing = [name for name, val in (("--host/PKTLOG_SSH_HOST", args.host),
+                                       ("--user/PKTLOG_SSH_USER", args.user),
+                                       ("--key/PKTLOG_SSH_KEY", args.key)) if not val]
+    if missing:
+        parser.error(f"missing required value(s): {', '.join(missing)}")
+    return args
+
+
+def run(client, label, cmd):
     _, stdout, stderr = client.exec_command(cmd, timeout=20)
     out = stdout.read().decode('utf-8', errors='replace').strip()
     err = stderr.read().decode('utf-8', errors='replace').strip()
     print(f'[{label}]')
-    if out: print(out)
-    if err and err: print('ERR:', err[:200])
+    if out:
+        print(out)
+    if err:
+        print('ERR:', err[:200])
 
-run('pktlog dir', 'ls /mnt/software/pktlog 2>/dev/null || echo "(not found)"')
-run('pktlog service', 'systemctl is-active pktlog 2>/dev/null || echo "(not installed)"')
-run('service file', 'ls /etc/systemd/system/pktlog.service 2>/dev/null || echo "(not found)"')
-run('logs dir', 'ls /mnt/software/logs/ 2>/dev/null | head -5')
-run('python3', 'python3 --version')
-run('disk', 'df -h /mnt/software | tail -1')
 
-client.close()
-print('Done')
+def main():
+    args = parse_args()
+
+    key = paramiko.RSAKey.from_private_key_file(args.key)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(args.host, username=args.user, pkey=key, timeout=15, banner_timeout=15)
+    print('Connected')
+
+    run(client, 'pktlog dir', f'ls {args.install_dir} 2>/dev/null || echo "(not found)"')
+    run(client, 'pktlog service', 'systemctl is-active pktlog 2>/dev/null || echo "(not installed)"')
+    run(client, 'service file', 'ls /etc/systemd/system/pktlog.service 2>/dev/null || echo "(not found)"')
+    run(client, 'logs dir', f'ls {args.log_dir}/ 2>/dev/null | head -5')
+    run(client, 'python3', 'python3 --version')
+    run(client, 'disk', f'df -h {args.install_dir} | tail -1')
+
+    client.close()
+    print('Done')
+
+
+if __name__ == "__main__":
+    main()
