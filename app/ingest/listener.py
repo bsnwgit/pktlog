@@ -107,9 +107,13 @@ async def _process(raw: str, collector_ip: str, received_at: datetime) -> None:
     try:
         record = parse(raw, received_at, collector_ip)
         normalizer = get_normalizer()
-        await normalizer.enrich(record)
+        enriched = await normalizer.enrich(record)
+        if enriched is None:
+            # Collector not registered + enabled in Settings -> Collectors —
+            # dropped, not stored.
+            return
         writer = get_writer()
-        await writer.enqueue(record)
+        await writer.enqueue(enriched)
     except Exception as e:
         log.error("Ingest pipeline error from %s: %s", collector_ip, e)
 

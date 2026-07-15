@@ -55,31 +55,45 @@ function fmtTs(iso: string): string {
 
 // ── Row expansion ─────────────────────────────────────────────────────────────
 
+// Every syslog_events column gets its own field here — no conditional
+// hiding, no combining two columns into one line — so the dropdown is a
+// complete, literal listing of the full record, not just a subset.
 function ExpandedRow({ r }: { r: SyslogRecord }) {
+  const fields: [string, string][] = [
+    ['timestamp',      r.timestamp],
+    ['received_at',    r.received_at],
+    ['source_ip',      r.source_ip],
+    ['source_name',    r.source_name || '—'],
+    ['facility',       String(r.facility)],
+    ['facility_name',  r.facility_name],
+    ['severity',       String(r.severity)],
+    ['severity_name',  r.severity_name],
+    ['program',        r.program || '—'],
+    ['pid',            r.pid || '—'],
+    ['collector_ip',   r.collector_ip],
+    ['collector_name', r.collector_name || '—'],
+    ['org',            r.org || '—'],
+    ['log_group',      r.log_group || '—'],
+    ['site',           r.site || '—'],
+  ]
+
   return (
     <tr className="bg-gray-950">
       <td colSpan={6} className="px-5 py-3">
         <div className="space-y-2 text-xs font-mono">
-          <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-gray-400">
-            <div><span className="text-gray-600">received_at </span>{r.received_at}</div>
-            <div><span className="text-gray-600">collector    </span>{r.collector_name} ({r.collector_ip})</div>
-            <div><span className="text-gray-600">source       </span>{r.source_name || '—'} ({r.source_ip})</div>
-            <div><span className="text-gray-600">facility     </span>{r.facility_name} ({r.facility})</div>
-            <div><span className="text-gray-600">org          </span>{r.org || '—'}</div>
-            <div><span className="text-gray-600">log_group    </span>{r.log_group || '—'}</div>
-            <div><span className="text-gray-600">site         </span>{r.site || '—'}</div>
-            {r.pid && <div><span className="text-gray-600">pid          </span>{r.pid}</div>}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-1 text-gray-400">
+            {fields.map(([label, value]) => (
+              <div key={label}><span className="text-gray-600">{label} </span>{value}</div>
+            ))}
           </div>
           <div>
             <p className="text-gray-600 mb-0.5">message</p>
             <p className="text-gray-200 whitespace-pre-wrap break-all">{r.message}</p>
           </div>
-          {r.raw && r.raw !== r.message && (
-            <div>
-              <p className="text-gray-600 mb-0.5">raw</p>
-              <p className="text-gray-500 whitespace-pre-wrap break-all">{r.raw}</p>
-            </div>
-          )}
+          <div>
+            <p className="text-gray-600 mb-0.5">raw</p>
+            <p className="text-gray-500 whitespace-pre-wrap break-all">{r.raw || '—'}</p>
+          </div>
         </div>
       </td>
     </tr>
