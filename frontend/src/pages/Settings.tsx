@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, Collector, CollectorIn, User, UserIn, SslStatus } from '../api/client'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
+import { useTimezone } from '../hooks/useTimezone'
 
 // ── Generic helpers ────────────────────────────────────────────────────────────
 type Settings = Record<string, unknown>
@@ -480,7 +482,7 @@ function PktHubTokenDisplay() {
               type="url"
               value={redirectUrl}
               onChange={e => setRedirectUrl(e.target.value)}
-              placeholder="https://<PKT_SERVER_IP>:8765"
+              placeholder="https://192.0.2.10:8765"
               className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-blue-500"
             />
             <button
@@ -515,7 +517,12 @@ function PktHubTokenDisplay() {
 export default function Settings() {
   const { user: me }          = useAuth()
   const isAdmin               = me?.role === 'admin'
-  const [tab, setTab]         = useState<TabId>('general')
+  const [searchParams]        = useSearchParams()
+  const [tab, setTab]         = useState<TabId>((searchParams.get('tab') as TabId) || 'general')
+  // Deep-link from an "Unknown collector" alert event — pre-fills the
+  // add-collector form on the Collectors tab; the user still decides the
+  // rest of the fields and clicks Save themselves.
+  const registerIp            = searchParams.get('register_ip') || ''
   const [settings, setSettings] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
   // Tracks whether the user has made unsaved edits.
@@ -669,7 +676,7 @@ export default function Settings() {
   }
 
   const ingestSave  = useSave([
-    'retention_days_raw', 'journal_max_gb',
+    'syslog_port', 'retention_days_raw', 'journal_max_gb',
   ], settings, load)
   const authSave = useSave([
     'auth_local_enabled', 'session_timeout_minutes',
@@ -728,7 +735,7 @@ export default function Settings() {
             <TextInput value={str('app_name', 'pktLog')} onChange={v => set('app_name', v)} />
           </Field>
           <Field label="Base URL" hint="Used for redirect URIs and notification links">
-            <TextInput value={str('base_url')} onChange={v => set('base_url', v)} placeholder="http://<PKT_SERVER_IP>:8768" />
+            <TextInput value={str('base_url')} onChange={v => set('base_url', v)} placeholder="http://192.0.2.10:8768" />
           </Field>
           <Field label="Timezone" hint="Affects display of timestamps in the UI">
             <SelectInput
@@ -858,7 +865,7 @@ export default function Settings() {
             <NumberInput value={num('backup_rotation_count', 5)} onChange={v => set('backup_rotation_count', v)} min={1} max={100} />
           </Field>
           <Field label="Backup path" hint="Directory on O2 where snapshots are stored">
-            <TextInput value={str('backup_path', '/mnt/software/pktlog_backups')} onChange={v => set('backup_path', v)} mono />
+            <TextInput value={str('backup_path')} onChange={v => set('backup_path', v)} mono />
           </Field>
           <Field label="Include ClickHouse flows" hint="Export full flow history into each snapshot (can be large)">
             <Toggle value={bool('backup_include_clickhouse', true)} onChange={v => set('backup_include_clickhouse', v)} />
@@ -961,10 +968,8 @@ export default function Settings() {
         <Section title="Ingest" onSave={ingestSave.save} saving={ingestSave.saving} saved={ingestSave.saved} error={ingestSave.error}>
           <Field label="Syslog port" hint="UDP + TCP port pktLog listens on for incoming syslog messages. Changing requires a service restart.">
             <div className="flex items-center gap-3">
-              <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono w-28">
-                8761
-              </div>
-              <span className="text-xs text-gray-500">UDP + TCP · read-only</span>
+              <NumberInput value={num('syslog_port', 8761)} onChange={v => set('syslog_port', v)} min={1} max={65535} />
+              <span className="text-xs text-gray-500">UDP + TCP</span>
             </div>
           </Field>
           <Field label="Raw log retention" hint="How long to keep syslog events in ClickHouse before TTL expiry.">
@@ -1181,7 +1186,7 @@ export default function Settings() {
       )}
 
       {/* Collectors tab */}
-      {tab === 'devices' && <CollectorRegistryTab />}
+      {tab === 'devices' && <CollectorRegistryTab prefillIp={registerIp} />}
 
       {/* Users tab — admin only */}
       {tab === 'users' && isAdmin && <UsersTab />}
@@ -1442,7 +1447,7 @@ function SslPanel({ sslEnabled, onToggleSSL }: { sslEnabled: boolean; onToggleSS
 
 // ── Collector Registry tab ────────────────────────────────────────────────────
 
-function CollectorRegistryTab() {
+function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
   const [collectors, setCollectors] = useState<Collector[]>([])
   const [editing, setEditing]       = useState<Collector | null>(null)
   const [adding, setAdding]         = useState(false)
@@ -1450,7 +1455,7 @@ function CollectorRegistryTab() {
   const [error, setError]           = useState('')
 
   const EMPTY: Partial<CollectorIn> = {
-    collector_ip: '', collector_name: '', org: '<ORG_NAME>', log_group: '', site: '', notes: '',
+    collector_ip: '', collector_name: '', org: '', log_group: '', site: '', notes: '',
   }
   const [addForm, setAddForm] = useState<Partial<CollectorIn>>(EMPTY)
 
@@ -1460,12 +1465,24 @@ function CollectorRegistryTab() {
 
   useEffect(() => { load() }, [])
 
+  // Deep-linked from an "Unknown collector" alert event — open the add
+  // form with just the IP filled in; the user decides everything else.
+  useEffect(() => {
+    if (prefillIp) {
+      setEditing(null)
+      setAddForm({ ...EMPTY, collector_ip: prefillIp })
+      setAdding(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillIp])
+
   const saveEdit = async (c: Collector) => {
     setSaving(true); setError('')
     try {
       await api.updateCollector(c.collector_ip, {
         collector_name: c.collector_name, org: c.org,
         log_group: c.log_group, site: c.site, notes: c.notes,
+        enabled: !!c.enabled,
       })
       setEditing(null)
       await load()
@@ -1496,7 +1513,9 @@ function CollectorRegistryTab() {
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-gray-500">
-          Maps collector IPs to names and the org/group/site hierarchy used for log enrichment.
+          Gateway for what's allowed to persist — a device can be sending syslog data on the wire,
+          but nothing is stored unless its IP is listed here and marked Enabled. Also maps collector
+          IPs to names and the org/group/site hierarchy used for log enrichment.
         </p>
         {!adding && (
           <button onClick={() => { setAdding(true); setEditing(null); setError('') }}
@@ -1535,7 +1554,7 @@ function CollectorRegistryTab() {
                 </td>
                 <td className="px-3 py-2">
                   <input value={addForm.org ?? ''} onChange={e => setAddForm(f => ({ ...f, org: e.target.value }))}
-                    placeholder="<ORG_NAME>" className={InputCls} />
+                    placeholder="org name" className={InputCls} />
                 </td>
                 <td className="px-3 py-2">
                   <input value={addForm.log_group ?? ''} onChange={e => setAddForm(f => ({ ...f, log_group: e.target.value }))}
@@ -1792,6 +1811,7 @@ function ResetPasswordModal({ user, onClose }: ResetPwProps) {
 
 function UsersTab() {
   const { user: me } = useAuth()
+  const timezone = useTimezone()
   const [users, setUsers]   = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal]   = useState<'create' | User | null>(null)
@@ -1930,7 +1950,7 @@ function UsersTab() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-white text-xs">
-                    {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+                    {u.last_login ? new Date(u.last_login).toLocaleString([], { timeZone: timezone }) : 'Never'}
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">
