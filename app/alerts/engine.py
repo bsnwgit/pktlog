@@ -77,30 +77,37 @@ class AlertEngine:
 
         if rule_type == "data_gap":
             silence_min = rule["conditions"].get("silence_minutes", 10)
-            last_seen = await get_storage().get_sampler_last_seen()
+            collectors = await get_storage().collector_last_seen()
+            last_seen = {
+                c["collector_ip"]: datetime.fromisoformat(c["last_seen"])
+                for c in collectors
+            }
             now = datetime.now(tz=timezone.utc)
 
-            # Load dismissed sampler IPs — these should never trigger gap alerts
+            # Load dismissed collector IPs — these should never trigger gap alerts
             async with db.execute("SELECT sampler_ip FROM sampler_dismissals") as cur:
                 dismissed = {r[0] for r in await cur.fetchall()}
             dismissed.add("0.0.0.0")  # always ignore the null address
 
-            # Fire for any sampler that has gone silent (and is not dismissed)
+            # Fire for any collector that has gone silent (and is not dismissed).
+            # Collectors that have never sent any data at all don't appear in
+            # last_seen (collector_last_seen() only returns collectors with at
+            # least one row in syslog_events), so they're not flagged here.
             gapped_samplers: set[str] = set()
-            for sampler_ip, ts in last_seen.items():
-                if sampler_ip in dismissed:
+            for collector_ip, ts in last_seen.items():
+                if collector_ip in dismissed:
                     continue
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
                 if (now - ts) > timedelta(minutes=silence_min):
-                    gapped_samplers.add(sampler_ip)
-                    fired_message = f"No flows from {sampler_ip} for >{silence_min} minutes (last seen: {ts.isoformat()})"
-                    details = {"sampler_ip": sampler_ip, "last_seen": ts.isoformat()}
+                    gapped_samplers.add(collector_ip)
+                    fired_message = f"No syslog messages from {collector_ip} for >{silence_min} minutes (last seen: {ts.isoformat()})"
+                    details = {"sampler_ip": collector_ip, "last_seen": ts.isoformat()}
                     await self._fire(db, rule, fired_message, details)
 
-            # Auto-resolve open events whose sampler has recovered
+            # Auto-resolve open events whose collector has recovered
             await self._auto_resolve_data_gap(db, rule, gapped_samplers, last_seen, silence_min)
-            return  # handled per-sampler above
+            return  # handled per-collector above
 
         elif rule_type == "new_host":
             return  # handled via notify_unknown_sampler()
