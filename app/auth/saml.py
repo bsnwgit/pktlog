@@ -71,7 +71,7 @@ async def load_saml_settings(db) -> Optional[dict]:
     if not all([idp_entity_id, idp_sso_url, idp_cert]):
         return None
 
-    base_url     = _decode(kv, "base_url", "http://localhost:8766").rstrip("/")
+    base_url     = _decode(kv, "base_url", "http://localhost:8768").rstrip("/")
     sp_entity_id = _decode(kv, "okta_saml_sp_entity_id") or f"{base_url}/api/auth/saml/metadata"
     acs_url      = f"{base_url}/api/auth/saml/callback"
 

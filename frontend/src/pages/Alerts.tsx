@@ -172,7 +172,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('value', 0))} onChange={v => set('value', parseFloat(v) || 0)} />
         </Field>
         <Field label="Sampler IP (optional)" hint="Leave blank to check all samplers">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -191,7 +191,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('baseline_days', 7))} onChange={v => set('baseline_days', parseInt(v) || 7)} />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -210,7 +210,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <SelectInput value={String(g('direction', 'dst'))} onChange={v => set('direction', v)} options={DIR_OPTS} />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -226,7 +226,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('threshold', 0))} onChange={v => set('threshold', parseFloat(v) || 0)} />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -239,7 +239,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('threshold_mb', 100))} onChange={v => set('threshold_mb', parseFloat(v) || 100)} placeholder="e.g. 100" />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -271,7 +271,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('threshold_connections', 1000))} onChange={v => set('threshold_connections', parseInt(v) || 1000)} />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -284,7 +284,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('threshold_ports', 50))} onChange={v => set('threshold_ports', parseInt(v) || 50)} />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -300,7 +300,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput value={String(g('src_subnet', ''))} onChange={v => set('src_subnet', v)} placeholder="e.g. 10.0.0.0/8" />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -320,7 +320,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <SelectInput value={String(g('direction', 'dst'))} onChange={v => set('direction', v)} options={DIR_OPTS} />
         </Field>
         <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -333,7 +333,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('min_flows_per_sec', 1))} onChange={v => set('min_flows_per_sec', parseFloat(v) || 1)} placeholder="e.g. 10" />
         </Field>
         <Field label="Sampler IP (optional)" hint="Leave blank to check total ingest across all samplers">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
