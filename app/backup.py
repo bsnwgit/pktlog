@@ -96,7 +96,7 @@ def run_backup_sync(db_path: str, ch_database: str) -> dict:
                         "--host", "localhost",
                         "--port", "9000",
                         "--database", ch_database,
-                        "--query", "SELECT * FROM flows FORMAT CSVWithNames",
+                        "--query", "SELECT * FROM syslog_events FORMAT CSVWithNames",
                     ],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
