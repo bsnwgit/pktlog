@@ -166,7 +166,7 @@ async def export_bundle():
                 shutil.copy2(str(db), str(tmp_path / "pktlog.db"))
 
             # ── config.yaml ──────────────────────────────────────────────────
-            for candidate in [Path("config.yaml"), Path("/mnt/software/pktlog/config.yaml")]:
+            for candidate in [Path("config.yaml"), Path(cfg.install_dir) / "config.yaml"]:
                 if candidate.exists():
                     shutil.copy2(str(candidate), str(tmp_path / "config.yaml"))
                     break
@@ -215,8 +215,8 @@ Generated: {ts}
 ## Restore procedure (fresh install)
 1. Deploy pktLog to the new server per the README.
 2. Stop the service:     sudo systemctl stop pktlog
-3. Copy pktlog.db     →  /mnt/software/pktlog/pktlog.db
-4. Copy config.yaml   →  /mnt/software/pktlog/config.yaml
+3. Copy pktlog.db     →  {cfg.db_path}
+4. Copy config.yaml   →  {cfg.install_dir}/config.yaml
 5. Start the service:    sudo systemctl start pktlog
 
 ## Restore ClickHouse data (if flows.csv.gz is present)
@@ -295,7 +295,7 @@ async def import_bundle(file: UploadFile = File(...)):
 
             # ── config.yaml ───────────────────────────────────────────────────
             cfg_src = tmp_path / "config.yaml"
-            cfg_dest = Path("/mnt/software/pktlog/config.yaml")
+            cfg_dest = Path(cfg.install_dir) / "config.yaml"
             if cfg_src.exists():
                 shutil.copy2(str(cfg_src), str(cfg_dest))
                 result["config"] = "restored (restart required)"
@@ -404,16 +404,23 @@ async def test_connection() -> dict:
 
 # ── SSL certificate management ─────────────────────────────────────────────────
 
-_SSL_DIR   = Path("/mnt/software/pktlog/ssl")
-_CERT_FILE = _SSL_DIR / "server.crt"
-_KEY_FILE  = _SSL_DIR / "server.key"
+def _ssl_dir() -> Path:
+    return Path(get_settings().ssl_dir)
+
+
+def _cert_file() -> Path:
+    return _ssl_dir() / "server.crt"
+
+
+def _key_file() -> Path:
+    return _ssl_dir() / "server.key"
 
 
 def _cert_info() -> dict:
     """Read cert metadata via openssl CLI. Returns {} on failure."""
     try:
         proc = subprocess.run(
-            ["openssl", "x509", "-in", str(_CERT_FILE), "-noout",
+            ["openssl", "x509", "-in", str(_cert_file()), "-noout",
              "-enddate", "-subject", "-issuer"],
             capture_output=True, text=True, timeout=5,
         )
@@ -448,7 +455,7 @@ def _cert_info() -> dict:
 @router.get("/ssl/status", dependencies=[Depends(require_admin)])
 async def ssl_status() -> dict:
     """Return current SSL certificate status."""
-    if not _CERT_FILE.exists() or not _KEY_FILE.exists():
+    if not _cert_file().exists() or not _key_file().exists():
         return {"installed": False}
     info = await asyncio.to_thread(_cert_info)
     return {"installed": True, **info}
@@ -469,11 +476,11 @@ async def upload_ssl_cert(
         raise HTTPException(400, "Invalid private key — must be PEM format (-----BEGIN ... PRIVATE KEY-----)")
 
     def _save():
-        _SSL_DIR.mkdir(parents=True, exist_ok=True)
-        _CERT_FILE.write_bytes(cert_data)
-        _CERT_FILE.chmod(0o644)
-        _KEY_FILE.write_bytes(key_data)
-        _KEY_FILE.chmod(0o600)
+        _ssl_dir().mkdir(parents=True, exist_ok=True)
+        _cert_file().write_bytes(cert_data)
+        _cert_file().chmod(0o644)
+        _key_file().write_bytes(key_data)
+        _key_file().chmod(0o600)
 
     await asyncio.to_thread(_save)
     log.info("SSL certificate uploaded and installed")
@@ -484,8 +491,8 @@ async def upload_ssl_cert(
 @router.delete("/ssl/cert", dependencies=[Depends(require_admin)])
 async def delete_ssl_cert() -> dict:
     """Remove the installed SSL certificate and key."""
-    _CERT_FILE.unlink(missing_ok=True)
-    _KEY_FILE.unlink(missing_ok=True)
+    _cert_file().unlink(missing_ok=True)
+    _key_file().unlink(missing_ok=True)
     log.info("SSL certificate removed")
     return {"installed": False, "status": "removed"}
 
@@ -504,7 +511,7 @@ async def upload_ssl_pfx(
 
     def _extract() -> tuple[bool, str]:
         import tempfile
-        _SSL_DIR.mkdir(parents=True, exist_ok=True)
+        _ssl_dir().mkdir(parents=True, exist_ok=True)
         tmp = Path(tempfile.mktemp(suffix=".pfx"))
         tmp.write_bytes(pfx_data)
         try:
@@ -514,7 +521,7 @@ async def upload_ssl_pfx(
                  "-in", str(tmp),
                  "-clcerts", "-nokeys",
                  "-passin", f"pass:{passphrase}",
-                 "-out", str(_CERT_FILE)],
+                 "-out", str(_cert_file())],
                 capture_output=True, text=True, timeout=15,
             )
             if cert_proc.returncode != 0:
@@ -527,15 +534,15 @@ async def upload_ssl_pfx(
                  "-in", str(tmp),
                  "-nocerts", "-nodes",
                  "-passin", f"pass:{passphrase}",
-                 "-out", str(_KEY_FILE)],
+                 "-out", str(_key_file())],
                 capture_output=True, text=True, timeout=15,
             )
             if key_proc.returncode != 0:
                 err = key_proc.stderr.strip()
                 return False, f"Key extraction failed: {err}"
 
-            _CERT_FILE.chmod(0o644)
-            _KEY_FILE.chmod(0o600)
+            _cert_file().chmod(0o644)
+            _key_file().chmod(0o600)
             return True, "ok"
         finally:
             tmp.unlink(missing_ok=True)

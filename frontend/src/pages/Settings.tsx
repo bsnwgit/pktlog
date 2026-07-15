@@ -858,7 +858,7 @@ export default function Settings() {
             <NumberInput value={num('backup_rotation_count', 5)} onChange={v => set('backup_rotation_count', v)} min={1} max={100} />
           </Field>
           <Field label="Backup path" hint="Directory on O2 where snapshots are stored">
-            <TextInput value={str('backup_path', '/mnt/software/pktlog_backups')} onChange={v => set('backup_path', v)} mono />
+            <TextInput value={str('backup_path')} onChange={v => set('backup_path', v)} mono />
           </Field>
           <Field label="Include ClickHouse flows" hint="Export full flow history into each snapshot (can be large)">
             <Toggle value={bool('backup_include_clickhouse', true)} onChange={v => set('backup_include_clickhouse', v)} />

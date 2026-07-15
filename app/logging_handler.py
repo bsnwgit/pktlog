@@ -10,7 +10,7 @@ Design notes:
   hot path (emit() never blocks callers).
 - A ring-buffer cap (default 10 000 rows) is enforced after every batch
   flush to keep the table small.
-- Level is configurable at runtime (default WARNING) — set via
+- Level is configurable at runtime (default INFO) — set via
   SQLiteLogHandler.set_level(logging.DEBUG) when deep troubleshooting.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ class SQLiteLogHandler(logging.Handler):
         batch_size: int = 50,
         flush_interval: float = 2.0,
     ) -> None:
-        super().__init__(level=logging.WARNING)
+        super().__init__(level=logging.INFO)
         self.db_path = str(db_path)
         self.max_records = max_records
         self.batch_size = batch_size
