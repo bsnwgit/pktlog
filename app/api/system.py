@@ -182,7 +182,7 @@ async def export_bundle():
                             "--host", "localhost",
                             "--port", "9000",
                             "--database", cfg.clickhouse_database,
-                            "--query", "SELECT * FROM flows FORMAT CSVWithNames",
+                            "--query", "SELECT * FROM syslog_events FORMAT CSVWithNames",
                         ],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
@@ -200,7 +200,7 @@ async def export_bundle():
             # ── RESTORE.md ───────────────────────────────────────────────────
             ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
             ch_note = (
-                "- flows.csv.gz — ClickHouse flows table (CSVWithNames format, gzip compressed)"
+                "- flows.csv.gz — ClickHouse syslog_events table (CSVWithNames format, gzip compressed)"
                 if flows_gz.exists() and flows_gz.stat().st_size > 100
                 else "- flows.csv.gz — NOT included (ClickHouse export failed or table empty)"
             )
@@ -224,7 +224,7 @@ On the new server, after ClickHouse is running and the pktlog database exists:
 
   gunzip -c flows.csv.gz | clickhouse-client \\
     --database pktlog \\
-    --query "INSERT INTO flows FORMAT CSVWithNames"
+    --query "INSERT INTO syslog_events FORMAT CSVWithNames"
 
 ## Notes
 - The JWT secret in config.yaml will invalidate existing browser sessions —
@@ -309,7 +309,7 @@ async def import_bundle(file: UploadFile = File(...)):
                     cmd = (
                         f"gunzip -c '{flows_gz}' | clickhouse-client "
                         f"--host localhost --database {cfg.clickhouse_database} "
-                        f"--query 'INSERT INTO flows FORMAT CSVWithNames'"
+                        f"--query 'INSERT INTO syslog_events FORMAT CSVWithNames'"
                     )
                     proc = subprocess.run(
                         cmd,
@@ -387,10 +387,10 @@ async def test_connection() -> dict:
             )
             version_rows = client.execute("SELECT version()")
             version = version_rows[0][0] if version_rows else "unknown"
-            count_rows = client.execute("SELECT count() FROM flows")
-            flow_count = int(count_rows[0][0]) if count_rows else 0
+            count_rows = client.execute("SELECT count() FROM syslog_events")
+            event_count = int(count_rows[0][0]) if count_rows else 0
             client.disconnect()
-            return True, f"Connected — ClickHouse {version} · {flow_count:,} rows stored"
+            return True, f"Connected — ClickHouse {version} · {event_count:,} rows stored"
         except Exception as e:
             return False, str(e)
 
