@@ -1,10 +1,15 @@
 # pktLog configuration
-# Copy to /opt/pktlog/config.yaml (or wherever PKTLOG_INSTALL_DIR points),
-# or set PKTLOG_CONFIG=/path/to/config.yaml, then restart the service.
+# Copy to <install_dir>/config.yaml, or set PKTLOG_CONFIG=/path/to/config.yaml,
+# then restart the service.
 #
-# install.sh generates config.yaml from this file automatically and fills
-# in secret_key and the install directory — edit config.yaml afterwards for
-# any further changes.
+# install.sh generates config.yaml from this file automatically, fills in
+# secret_key, and appends install_dir — edit config.yaml afterwards for any
+# further changes.
+#
+# install_dir is the app root. Every on-disk path below (db_path, journal_dir,
+# duckdb_path, log_file, ssl_dir) defaults to somewhere under install_dir and
+# does NOT need to be set explicitly — only uncomment one if you need that
+# particular path to live somewhere else.
 #
 # Most runtime settings (storage backend, retention, notifications, etc.) are
 # managed via the Settings page in the UI and stored in SQLite.
@@ -16,8 +21,11 @@ port: 8768
 workers: 2
 debug: false
 
-# ── SQLite app database ────────────────────────────────────────────────────────
-db_path: "/opt/pktlog/pktlog.db"
+# ── App root — install.sh appends this automatically ──────────────────────────
+# install_dir: "/opt/pktlog"
+
+# ── SQLite app database (optional override; default: <install_dir>/pktlog.db) ─
+# db_path: "/opt/pktlog/pktlog.db"
 
 # ── ClickHouse ────────────────────────────────────────────────────────────────
 # Use the IP/hostname of your ClickHouse instance ("localhost" if installed
@@ -31,8 +39,13 @@ clickhouse_password: ""
 # ── Syslog ingest port ────────────────────────────────────────────────────────
 syslog_port: 8761
 
-# ── DuckDB (only if using DuckDB backend instead of ClickHouse) ───────────────
-duckdb_path: "/opt/pktlog/pktlog_data.duckdb"
+# ── Ingest journal (optional override; default: <install_dir>/ingest_journal) ─
+# Overflow storage used when ClickHouse is unreachable.
+# journal_dir: "/opt/pktlog/ingest_journal"
+
+# ── DuckDB (optional override; default: <install_dir>/pktlog_data.duckdb) ─────
+# Only relevant if using the DuckDB backend instead of ClickHouse.
+# duckdb_path: "/opt/pktlog/pktlog_data.duckdb"
 
 # ── JWT (generate with: openssl rand -hex 32) ─────────────────────────────────
 secret_key: "CHANGE_ME_generate_with_openssl_rand_hex_32"
@@ -43,4 +56,7 @@ cors_origins:
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 log_level: "info"
-log_file: "/opt/pktlog/logs/pktlog.log"
+# log_file: "/opt/pktlog/logs/pktlog.log"   # optional override; default: <install_dir>/logs/pktlog.log
+
+# ── SSL certificates (optional override; default: <install_dir>/ssl) ──────────
+# ssl_dir: "/opt/pktlog/ssl"

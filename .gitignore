@@ -14,9 +14,10 @@ env/
 *.egg
 
 # Environment & secrets
+# config.yaml contains secret_key and passwords — use config.example.yaml as template
 .env
 .env.*
-config.yaml          # contains secret_key and passwords — use config.example.yaml as template
+config.yaml
 
 # Runtime data (never commit databases or logs)
 *.db

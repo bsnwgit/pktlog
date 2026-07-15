@@ -198,9 +198,7 @@ class DuckDBBackend(StorageBackend):
     def __init__(self):
         self._wconn: Optional[duckdb.DuckDBPyConnection] = None
         self._read_pool: Optional[_ReadPool] = None
-        self._db_path: str = getattr(
-            settings, "duckdb_path", "/mnt/software/pktlog/pktlog_data.duckdb"
-        )
+        self._db_path: str = settings.duckdb_path
 
     # ── Async dispatch helpers ─────────────────────────────────────────────────
 

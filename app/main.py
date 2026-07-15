@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
     log.info("pktLog starting up")
 
-    # Attach SQLite log handler (captures WARNING+ by default)
+    # Attach SQLite log handler (captures INFO+ by default)
     from app.logging_handler import SQLiteLogHandler
     _log_handler = SQLiteLogHandler(db_path=settings.db_path)
     _log_handler.attach_to_root_logger("pktlog")

@@ -14,20 +14,27 @@ User=__SERVICE_USER__
 Group=__SERVICE_GROUP__
 WorkingDirectory=__INSTALL_DIR__
 
-# Config
+# Config — PKTLOG_INSTALL_DIR is the app root; every on-disk path (db, logs,
+# ingest journal, ssl certs, backups) defaults to somewhere under it unless
+# overridden in config.yaml. See app/config.py.
 Environment=PKTLOG_CONFIG=__INSTALL_DIR__/config.yaml
+Environment=PKTLOG_INSTALL_DIR=__INSTALL_DIR__
 
-# Launch FastAPI via Uvicorn
-# --workers 2 is safe for a single host; increase if CPU allows
-ExecStart=__INSTALL_DIR__/venv/bin/uvicorn app.main:app \
-    --host 0.0.0.0 \
-    --port 8768 \
-    --workers 2 \
-    --log-level info \
-    --no-access-log
+# Launch via start.sh, which auto-detects an uploaded SSL cert
+# (ssl/server.crt + server.key) and adds --ssl-certfile/--ssl-keyfile.
+# Plain HTTP by default; upload a cert via Settings → SSL/TLS and restart
+# to switch to HTTPS — no other config needed.
+ExecStart=__INSTALL_DIR__/start.sh
 
-# Restart policy
-Restart=on-failure
+# `always` (not `on-failure`) so the app's own restart-service fallback
+# (sending SIGTERM to the master process when it lacks passwordless sudo to
+# run `systemctl restart` directly — see app/api/system.py _delayed_restart)
+# actually causes systemd to bring the service back up. A clean SIGTERM is
+# not "failure" from systemd's point of view, so on-failure never restarts
+# it — the service just stops and stays down. `systemctl stop`/`restart`
+# still work normally either way, since those go through systemd's own
+# stop sequence, which isn't affected by the Restart= policy.
+Restart=always
 RestartSec=5
 StartLimitInterval=60
 StartLimitBurst=3
