@@ -1464,6 +1464,7 @@ function CollectorRegistryTab() {
       await api.updateCollector(c.collector_ip, {
         collector_name: c.collector_name, org: c.org,
         log_group: c.log_group, site: c.site, notes: c.notes,
+        enabled: !!c.enabled,
       })
       setEditing(null)
       await load()
@@ -1494,7 +1495,9 @@ function CollectorRegistryTab() {
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-gray-500">
-          Maps collector IPs to names and the org/group/site hierarchy used for log enrichment.
+          Gateway for what's allowed to persist — a device can be sending syslog data on the wire,
+          but nothing is stored unless its IP is listed here and marked Enabled. Also maps collector
+          IPs to names and the org/group/site hierarchy used for log enrichment.
         </p>
         {!adding && (
           <button onClick={() => { setAdding(true); setEditing(null); setError('') }}

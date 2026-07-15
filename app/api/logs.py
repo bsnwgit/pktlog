@@ -8,6 +8,7 @@ POST /api/logs/level    — change the live capture level (admin only)
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 
@@ -15,6 +16,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, Query
 
 from app.config import get_settings
+from app.database import get_db
 from app.dependencies import require_admin, get_current_user
 
 log = logging.getLogger("pktlog.api.logs")
@@ -153,27 +155,43 @@ async def clear_logs() -> dict:
 # ── Live level change ─────────────────────────────────────────────────────────
 
 @router.post("/level", dependencies=[Depends(require_admin)])
-async def set_log_level(level: str) -> dict:
+async def set_log_level(level: str, db: aiosqlite.Connection = Depends(get_db)) -> dict:
     """
     Change the minimum captured log level at runtime.
     Use 'DEBUG' for deep troubleshooting, reset to 'WARNING' when done.
+
+    pktlog runs multiple uvicorn workers (see pktlog.service), each a
+    separate process with its own in-memory SQLiteLogHandler — so this
+    can't just flip the level in the process that happens to handle this
+    request. The level is persisted to the settings table; every worker's
+    handler polls it on each background-flush tick (~every
+    flush_interval seconds, see app/logging_handler.py) and applies it
+    when it changes, in addition to being applied immediately here for
+    the current process.
     """
     level = level.upper()
     if level not in _VALID_LEVELS:
         from fastapi import HTTPException
         raise HTTPException(400, f"Invalid level '{level}'. Must be one of {sorted(_VALID_LEVELS)}")
 
-    # Reach into the singleton handler if it's been registered
+    await db.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('log_capture_level', ?)",
+        (json.dumps(level),),
+    )
+    await db.commit()
+
+    # Apply immediately in this process too, rather than waiting for the
+    # next poll cycle.
     try:
         from app.logging_handler import SQLiteLogHandler
         root_logger = logging.getLogger("pktlog")
         for h in root_logger.handlers:
             if isinstance(h, SQLiteLogHandler):
-                h.set_capture_level(logging.getLevelName(level))
+                h.set_capture_level(_LEVEL_NOS[level])
                 break
         else:
             # Handler not found — just set the logger level directly
-            root_logger.setLevel(logging.getLevelName(level))
+            root_logger.setLevel(_LEVEL_NOS[level])
     except Exception as e:
         log.warning(f"set_log_level: {e}")
 
