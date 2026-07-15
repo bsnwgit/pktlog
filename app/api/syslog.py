@@ -104,8 +104,14 @@ async def get_stats(
             await storage.collector_last_seen(),
         )
 
-        # Build last_seen lookup from ClickHouse data keyed by collector_ip
-        ch_map = {r["collector_ip"]: r for r in ch_last_seen}
+        # Build last_seen lookup from ClickHouse data keyed by collector_ip.
+        # A collector can appear under multiple collector_names (e.g. its raw
+        # IP before registration, then its assigned name after) — ch_last_seen
+        # is ordered newest-first, so keep only the first (most recent) row
+        # per IP rather than letting a later, staler row for the same IP win.
+        ch_map: dict[str, dict] = {}
+        for r in ch_last_seen:
+            ch_map.setdefault(r["collector_ip"], r)
 
         # Load all registered collectors from SQLite registry
         async with db.execute(
@@ -113,28 +119,19 @@ async def get_stats(
         ) as cur:
             registry_rows = await cur.fetchall()
 
-        # Merge: registry is the source of truth for which collectors exist;
-        # last_seen comes from ClickHouse if available, else null
-        seen_ips: set[str] = set()
+        # Registry (enabled collectors only) is the source of truth for which
+        # collectors are shown here; last_seen comes from ClickHouse if available,
+        # else null. Unregistered/disabled collectors are intentionally excluded —
+        # they surface via the "Unknown collector" alert instead.
         collector_last_seen: list[dict] = []
         for row in registry_rows:
             ip, name = row[0], row[1]
-            seen_ips.add(ip)
             ch = ch_map.get(ip)
             collector_last_seen.append({
                 "collector_ip":   ip,
                 "collector_name": name or ip,
                 "last_seen":      ch["last_seen"] if ch else None,
             })
-
-        # Also include any collectors actively sending logs that aren't in the registry yet
-        for ip, ch in ch_map.items():
-            if ip not in seen_ips:
-                collector_last_seen.append({
-                    "collector_ip":   ip,
-                    "collector_name": ch["collector_name"] or ip,
-                    "last_seen":      ch["last_seen"],
-                })
 
         return {
             "hours": hours,
