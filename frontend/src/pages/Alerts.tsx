@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { api, AlertRule, AlertEvent, getToken } from '../api/client'
 import { useWebSocket, type WsMessage, type AlertFiredPayload } from '../hooks/useWebSocket'
 
@@ -324,6 +325,15 @@ function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) =>
   const isResolved  = Boolean(event.resolved_at) && !isAcked
   const hasDetails  = Object.keys(event.details).length > 0
 
+  // "Unknown collector <ip> sent syslog data — not in collector registry"
+  // (see app/alerts/engine.py _check_unknown_samplers) — offer a direct
+  // link to register it, pre-filled with just the IP. The user still fills
+  // in and saves the rest themselves.
+  const unknownIp = event.message.startsWith('Unknown collector ')
+    && typeof event.details.sampler_ip === 'string'
+    ? event.details.sampler_ip as string
+    : null
+
   return (
     <div className={`bg-gray-900 border rounded-xl p-4 transition-opacity ${
       isAcked ? 'opacity-40 border-gray-800' : isResolved ? 'opacity-70 border-gray-700' : 'border-gray-700'
@@ -343,6 +353,14 @@ function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) =>
             <p className="text-sm text-white mt-0.5">{event.message}</p>
             {isResolved && (
               <p className="text-xs text-green-500/70 mt-0.5">Resolved {fmtTime(event.resolved_at!)}</p>
+            )}
+            {unknownIp && (
+              <Link
+                to={`/settings?tab=devices&register_ip=${encodeURIComponent(unknownIp)}`}
+                className="inline-block mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Register collector {unknownIp} →
+              </Link>
             )}
           </div>
         </div>

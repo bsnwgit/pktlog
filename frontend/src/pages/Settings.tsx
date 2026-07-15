@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, Collector, CollectorIn, User, UserIn, SslStatus } from '../api/client'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
@@ -515,7 +516,12 @@ function PktHubTokenDisplay() {
 export default function Settings() {
   const { user: me }          = useAuth()
   const isAdmin               = me?.role === 'admin'
-  const [tab, setTab]         = useState<TabId>('general')
+  const [searchParams]        = useSearchParams()
+  const [tab, setTab]         = useState<TabId>((searchParams.get('tab') as TabId) || 'general')
+  // Deep-link from an "Unknown collector" alert event — pre-fills the
+  // add-collector form on the Collectors tab; the user still decides the
+  // rest of the fields and clicks Save themselves.
+  const registerIp            = searchParams.get('register_ip') || ''
   const [settings, setSettings] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
   // Tracks whether the user has made unsaved edits.
@@ -1179,7 +1185,7 @@ export default function Settings() {
       )}
 
       {/* Collectors tab */}
-      {tab === 'devices' && <CollectorRegistryTab />}
+      {tab === 'devices' && <CollectorRegistryTab prefillIp={registerIp} />}
 
       {/* Users tab — admin only */}
       {tab === 'users' && isAdmin && <UsersTab />}
@@ -1440,7 +1446,7 @@ function SslPanel({ sslEnabled, onToggleSSL }: { sslEnabled: boolean; onToggleSS
 
 // ── Collector Registry tab ────────────────────────────────────────────────────
 
-function CollectorRegistryTab() {
+function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
   const [collectors, setCollectors] = useState<Collector[]>([])
   const [editing, setEditing]       = useState<Collector | null>(null)
   const [adding, setAdding]         = useState(false)
@@ -1457,6 +1463,17 @@ function CollectorRegistryTab() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Deep-linked from an "Unknown collector" alert event — open the add
+  // form with just the IP filled in; the user decides everything else.
+  useEffect(() => {
+    if (prefillIp) {
+      setEditing(null)
+      setAddForm({ ...EMPTY, collector_ip: prefillIp })
+      setAdding(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillIp])
 
   const saveEdit = async (c: Collector) => {
     setSaving(true); setError('')
