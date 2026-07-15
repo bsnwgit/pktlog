@@ -3,8 +3,17 @@ pktLog configuration.
 
 Priority order (highest → lowest):
   1. Environment variables  (PKTLOG_*)
-  2. config.yaml in CWD or /mnt/software/pktlog/
+  2. config.yaml — found via $PKTLOG_CONFIG, $PKTLOG_INSTALL_DIR/config.yaml,
+     ./config.yaml, or ~/.pktlog/config.yaml
   3. Defaults defined here
+
+No path in this file is hardcoded to a specific install location. Every
+on-disk path (db_path, duckdb_path, log_file, journal_dir, ssl_dir, ...)
+defaults to somewhere under `install_dir` — the directory install.sh (or
+$PKTLOG_INSTALL_DIR) was pointed at — so the app works the same whether
+it's installed at /opt/pktlog, in-place in a repo checkout, or anywhere
+else. Override any individual path in config.yaml if you need it to live
+somewhere other than install_dir.
 
 Runtime settings (storage backend, retention days, etc.) are stored in SQLite
 and loaded via SettingsStore; those are NOT in this file.
@@ -16,33 +25,51 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _load_yaml() -> dict:
-    """Try known config file locations and return parsed YAML, or {}."""
-    candidates = [
-        Path("config.yaml"),
-        Path("/app/data/config.yaml"),
-        Path("/mnt/software/pktlog/config.yaml"),
-        Path.home() / ".pktlog" / "config.yaml",
-    ]
+def _find_config_path() -> Optional[Path]:
+    """Try known config file locations, in priority order."""
+    candidates = [Path("config.yaml")]
+    install_dir = os.environ.get("PKTLOG_INSTALL_DIR")
+    if install_dir:
+        candidates.insert(0, Path(install_dir) / "config.yaml")
+    candidates.append(Path.home() / ".pktlog" / "config.yaml")
+
     env_path = os.environ.get("PKTLOG_CONFIG")
     if env_path:
         candidates.insert(0, Path(env_path))
 
     for path in candidates:
         if path.exists():
-            with path.open() as f:
-                return yaml.safe_load(f) or {}
-    return {}
+            return path
+    return None
 
 
-_yaml_cfg = _load_yaml()
+def _load_yaml(path: Optional[Path]) -> dict:
+    if path is None:
+        return {}
+    with path.open() as f:
+        return yaml.safe_load(f) or {}
+
+
+def _default_install_dir(config_path: Optional[Path]) -> Path:
+    """The app root: everything else defaults to a path under this."""
+    env_dir = os.environ.get("PKTLOG_INSTALL_DIR")
+    if env_dir:
+        return Path(env_dir)
+    if config_path is not None:
+        return config_path.resolve().parent
+    return Path.cwd()
+
+
+_CONFIG_PATH = _find_config_path()
+_yaml_cfg = _load_yaml(_CONFIG_PATH)
+_INSTALL_DIR = _default_install_dir(_CONFIG_PATH)
 
 
 class Settings(BaseSettings):
@@ -60,9 +87,12 @@ class Settings(BaseSettings):
     workers: int = Field(default=_yaml_cfg.get("workers", 2))
     debug: bool = Field(default=_yaml_cfg.get("debug", False))
 
+    # ── App root — every other path below defaults to somewhere under this ────
+    install_dir: str = Field(default=_yaml_cfg.get("install_dir", str(_INSTALL_DIR)))
+
     # ── App database (SQLite sidecar) ──────────────────────────────────────────
     db_path: str = Field(
-        default=_yaml_cfg.get("db_path", "/app/data/pktlog.db")
+        default=_yaml_cfg.get("db_path", str(_INSTALL_DIR / "pktlog.db"))
     )
 
     # ── ClickHouse (startup connection — overridable at runtime via settings) ──
@@ -74,10 +104,13 @@ class Settings(BaseSettings):
 
     # ── Syslog ingest ─────────────────────────────────────────────────────────
     syslog_port: int = Field(default=_yaml_cfg.get("syslog_port", 8761))
+    journal_dir: str = Field(
+        default=_yaml_cfg.get("journal_dir", str(_INSTALL_DIR / "ingest_journal"))
+    )
 
     # ── DuckDB (alternate backend) ─────────────────────────────────────────────
     duckdb_path: str = Field(
-        default=_yaml_cfg.get("duckdb_path", "/app/data/pktlog_data.duckdb")
+        default=_yaml_cfg.get("duckdb_path", str(_INSTALL_DIR / "pktlog_data.duckdb"))
     )
 
     # ── JWT ───────────────────────────────────────────────────────────────────
@@ -102,8 +135,11 @@ class Settings(BaseSettings):
     # ── Logging ───────────────────────────────────────────────────────────────
     log_level: str = Field(default=_yaml_cfg.get("log_level", "info"))
     log_file: str = Field(
-        default=_yaml_cfg.get("log_file", "/app/data/logs/pktlog.log")
+        default=_yaml_cfg.get("log_file", str(_INSTALL_DIR / "logs" / "pktlog.log"))
     )
+
+    # ── SSL certificate storage ─────────────────────────────────────────────────
+    ssl_dir: str = Field(default=_yaml_cfg.get("ssl_dir", str(_INSTALL_DIR / "ssl")))
 
 
 @lru_cache
