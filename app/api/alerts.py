@@ -44,6 +44,12 @@ def _rule_to_dict(row: aiosqlite.Row) -> dict:
 def _event_to_dict(row: aiosqlite.Row) -> dict:
     d = dict(row)
     d["details"] = json.loads(d["details"]) if d["details"] else {}
+    # fired_at/acked_at/resolved_at come from SQLite's datetime('now'), which
+    # is UTC but has no timezone marker ("2026-07-15 19:29:31") — browsers
+    # parse that as local time, not UTC. Normalize to a proper UTC ISO string.
+    for col in ("fired_at", "acked_at", "resolved_at"):
+        if d.get(col):
+            d[col] = d[col].replace(" ", "T") + "Z"
     return d
 
 

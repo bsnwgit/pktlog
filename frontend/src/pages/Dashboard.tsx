@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 import { api, SyslogStats, SyslogTimeseriesPoint } from '../api/client'
 import { useAutoRefresh } from '../store/autoRefresh'
+import { useTimezone } from '../hooks/useTimezone'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -30,21 +31,29 @@ const SEV_CONFIG: Record<string, { color: string; bg: string; label: string }> =
   debug:     { color: 'text-gray-400',   bg: 'bg-gray-800/50 border-gray-700/30',   label: 'Debug'     },
 }
 
-function collectorStaleness(lastSeen: string | null): { dot: string; label: string } {
-  if (!lastSeen) return { dot: 'bg-gray-500', label: 'No data' }
+function collectorDot(lastSeen: string | null): string {
+  if (!lastSeen) return 'bg-gray-500'
   const ageMin = (Date.now() - new Date(lastSeen).getTime()) / 60_000
-  if (ageMin < 5)  return { dot: 'bg-green-400', label: `${Math.round(ageMin)}m ago` }
-  if (ageMin < 30) return { dot: 'bg-yellow-400', label: `${Math.round(ageMin)}m ago` }
-  const ageH = ageMin / 60
-  if (ageH < 24)   return { dot: 'bg-red-400', label: `${Math.round(ageH)}h ago` }
-  return { dot: 'bg-red-600', label: `${Math.round(ageH / 24)}d ago` }
+  if (ageMin < 5)  return 'bg-green-400'
+  if (ageMin < 30) return 'bg-yellow-400'
+  if (ageMin < 24 * 60) return 'bg-red-400'
+  return 'bg-red-600'
 }
 
-function fmtBucket(iso: string, hours: number): string {
+function fmtLastSeen(lastSeen: string | null, timeZone: string): string {
+  if (!lastSeen) return 'No data'
+  return new Date(lastSeen).toLocaleString([], {
+    timeZone,
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtBucket(iso: string, hours: number, timeZone: string): string {
   const d = new Date(iso)
-  if (hours <= 6)  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  if (hours <= 24) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  if (hours <= 6)  return d.toLocaleTimeString([], { timeZone, hour: '2-digit', minute: '2-digit' })
+  if (hours <= 24) return d.toLocaleTimeString([], { timeZone, hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString([], { timeZone, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -71,6 +80,7 @@ export default function Dashboard() {
   const [series, setSeries] = useState<SyslogTimeseriesPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const timezone = useTimezone()
 
   const { enabled: autoRefresh, intervalSec } = useAutoRefresh()
 
@@ -104,7 +114,7 @@ export default function Dashboard() {
   const sevOrder = ['emergency', 'alert', 'critical', 'error', 'warning', 'notice', 'info', 'debug']
 
   const chartData = series.map(p => ({
-    t: fmtBucket(p.bucket, win.hours),
+    t: fmtBucket(p.bucket, win.hours, timezone),
     count: p.count,
   }))
 
@@ -245,21 +255,18 @@ export default function Dashboard() {
             ) : stats?.collector_last_seen.length === 0 ? (
               <div className="px-5 py-4 text-sm text-gray-600">No collectors registered</div>
             ) : (
-              stats?.collector_last_seen.map((c, i) => {
-                const { dot, label } = collectorStaleness(c.last_seen)
-                return (
-                  <div key={i} className="px-5 py-3 flex items-center gap-3">
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white truncate">
-                        {c.collector_name || c.collector_ip}
-                      </p>
-                      <p className="text-xs text-gray-500 font-mono">{c.collector_ip}</p>
-                    </div>
-                    <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
+              stats?.collector_last_seen.map((c, i) => (
+                <div key={i} className="px-5 py-3 flex items-center gap-3">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${collectorDot(c.last_seen)}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">
+                      {c.collector_name || c.collector_ip}
+                    </p>
+                    <p className="text-xs text-gray-500 font-mono">{c.collector_ip}</p>
                   </div>
-                )
-              })
+                  <span className="text-xs text-gray-400 flex-shrink-0">{fmtLastSeen(c.last_seen, timezone)}</span>
+                </div>
+              ))
             )}
           </div>
         </div>

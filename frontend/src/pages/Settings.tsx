@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api, Collector, CollectorIn, User, UserIn, SslStatus } from '../api/client'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
+import { useTimezone } from '../hooks/useTimezone'
 
 // ── Generic helpers ────────────────────────────────────────────────────────────
 type Settings = Record<string, unknown>
@@ -1810,6 +1811,7 @@ function ResetPasswordModal({ user, onClose }: ResetPwProps) {
 
 function UsersTab() {
   const { user: me } = useAuth()
+  const timezone = useTimezone()
   const [users, setUsers]   = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal]   = useState<'create' | User | null>(null)
@@ -1948,7 +1950,7 @@ function UsersTab() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-white text-xs">
-                    {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+                    {u.last_login ? new Date(u.last_login).toLocaleString([], { timeZone: timezone }) : 'Never'}
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">
