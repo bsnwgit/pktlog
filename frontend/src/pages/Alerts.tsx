@@ -2,11 +2,13 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, AlertRule, AlertEvent, getToken } from '../api/client'
 import { useWebSocket, type WsMessage, type AlertFiredPayload } from '../hooks/useWebSocket'
+import { useTimezone } from '../hooks/useTimezone'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtTime(ts: string): string {
+function fmtTime(ts: string, timeZone: string): string {
   return new Date(ts).toLocaleString([], {
+    timeZone,
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
@@ -319,7 +321,7 @@ function DetailsPanel({ details }: { details: DetailMap }) {
 }
 
 // ── Alert event card ──────────────────────────────────────────────────────────
-function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) => void }) {
+function EventCard({ event, onAck, timezone }: { event: AlertEvent; onAck: (id: number) => void; timezone: string }) {
   const [expanded, setExpanded] = useState(false)
   const isAcked     = Boolean(event.acked_at)
   const isResolved  = Boolean(event.resolved_at) && !isAcked
@@ -352,7 +354,7 @@ function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) =>
             <p className="text-sm font-medium text-white truncate">{event.rule_name}</p>
             <p className="text-sm text-white mt-0.5">{event.message}</p>
             {isResolved && (
-              <p className="text-xs text-green-500/70 mt-0.5">Resolved {fmtTime(event.resolved_at!)}</p>
+              <p className="text-xs text-green-500/70 mt-0.5">Resolved {fmtTime(event.resolved_at!, timezone)}</p>
             )}
             {unknownIp && (
               <Link
@@ -365,7 +367,7 @@ function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) =>
           </div>
         </div>
         <div className="shrink-0 flex items-center gap-2">
-          <span className="text-xs text-white">{fmtTime(event.fired_at)}</span>
+          <span className="text-xs text-white">{fmtTime(event.fired_at, timezone)}</span>
           {!isAcked && (
             <button
               onClick={() => onAck(event.id)}
@@ -639,6 +641,7 @@ function RuleForm({
 type Tab = 'active' | 'history' | 'rules'
 
 export default function Alerts() {
+  const timezone = useTimezone()
   const [tab, setTab]               = useState<Tab>('active')
   const [events, setEvents]         = useState<AlertEvent[]>([])
   const [history, setHistory]       = useState<AlertEvent[]>([])
@@ -868,7 +871,7 @@ export default function Alerts() {
               <p className="text-sm">No unacknowledged alerts</p>
             </div>
           )}
-          {events.map(e => <EventCard key={e.id} event={e} onAck={handleAck} />)}
+          {events.map(e => <EventCard key={e.id} event={e} onAck={handleAck} timezone={timezone} />)}
         </div>
       )}
 
@@ -880,7 +883,7 @@ export default function Alerts() {
               <p className="text-sm">No alert history</p>
             </div>
           )}
-          {history.map(e => <EventCard key={e.id} event={e} onAck={handleAck} />)}
+          {history.map(e => <EventCard key={e.id} event={e} onAck={handleAck} timezone={timezone} />)}
         </div>
       )}
 
