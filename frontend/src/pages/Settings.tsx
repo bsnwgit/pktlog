@@ -669,7 +669,7 @@ export default function Settings() {
   }
 
   const ingestSave  = useSave([
-    'retention_days_raw', 'journal_max_gb',
+    'syslog_port', 'retention_days_raw', 'journal_max_gb',
   ], settings, load)
   const authSave = useSave([
     'auth_local_enabled', 'session_timeout_minutes',
@@ -961,10 +961,8 @@ export default function Settings() {
         <Section title="Ingest" onSave={ingestSave.save} saving={ingestSave.saving} saved={ingestSave.saved} error={ingestSave.error}>
           <Field label="Syslog port" hint="UDP + TCP port pktLog listens on for incoming syslog messages. Changing requires a service restart.">
             <div className="flex items-center gap-3">
-              <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono w-28">
-                8761
-              </div>
-              <span className="text-xs text-gray-500">UDP + TCP · read-only</span>
+              <NumberInput value={num('syslog_port', 8761)} onChange={v => set('syslog_port', v)} min={1} max={65535} />
+              <span className="text-xs text-gray-500">UDP + TCP</span>
             </div>
           </Field>
           <Field label="Raw log retention" hint="How long to keep syslog events in ClickHouse before TTL expiry.">
