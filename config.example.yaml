@@ -37,7 +37,7 @@ clickhouse_user: "default"
 clickhouse_password: ""
 
 # ── Syslog ingest port ────────────────────────────────────────────────────────
-syslog_port: 8761
+syslog_port: 5514
 
 # ── Ingest journal (optional override; default: <install_dir>/ingest_journal) ─
 # Overflow storage used when ClickHouse is unreachable.
