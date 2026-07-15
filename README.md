@@ -81,6 +81,14 @@ Syslog Collectors ──UDP/TCP:5514──► pktLog Ingest Listener
 | Auth | Local + SAML/Okta SSO + pktSuite `suite_token` |
 | Ingest | Async UDP + TCP (RFC 3164 / RFC 5424) |
 
+### Collectors are an allowlist, not just labels
+
+A device can be actively sending syslog data on the wire, but **nothing is stored until its IP is added under Settings → Collectors and marked enabled.** Data from an unregistered or disabled `collector_ip` is dropped at ingest (`app/ingest/normalizer.py`), not just missing hierarchy metadata — this is intentional, so a stray/misconfigured device on the network can't silently fill up storage. An unregistered sender instead raises an "Unknown collector" alert with a one-click link to pre-fill its registration form.
+
+### Timestamps and device timezone
+
+RFC 3164 syslog (`MMM DD HH:MM:SS`, no timezone marker) is interpreted using the app's configured **Timezone** setting (Settings → General) as the device's local clock, then converted to UTC for storage — not assumed to already be UTC. Many real devices (UniFi APs/gateways observed in practice) log in local time, and getting this wrong silently shifts every such event by the zone offset. The `received_at` column is always the server's own UTC receipt time regardless of this setting, and is the field to check first if stored `timestamp` values ever look wrong.
+
 ---
 
 ## Requirements
@@ -288,11 +296,13 @@ Log in at `http://<server-ip>:8768` (or `https://` if SSL is configured) with th
 
 ## SSL / HTTPS
 
-pktLog auto-detects SSL on startup. If `<INSTALL_DIR>/ssl/server.crt` and `server.key` exist, it starts in HTTPS mode; otherwise HTTP. `start.sh` implements this detection for manual/dev use; `pktlog.service`'s `ExecStart` runs `uvicorn` directly without SSL flags — for SSL under systemd, point `ExecStart` at `start.sh` instead, or add `--ssl-certfile`/`--ssl-keyfile` to the unit.
+pktLog auto-detects SSL on startup. If `<INSTALL_DIR>/ssl/server.crt` and `server.key` exist, it starts in HTTPS mode; otherwise HTTP. `pktlog.service`'s `ExecStart` runs `start.sh` (not `uvicorn` directly), which implements this detection — so SSL just works under systemd once a cert/key are present, no unit changes needed.
 
 **To enable HTTPS:** upload cert/key via **Settings → Integrations → SSL / TLS**, then restart the service.
 
 **To disable HTTPS:** remove the cert via the same Settings panel (or delete the files under `<INSTALL_DIR>/ssl/`), then restart.
+
+**Gotcha — a previously-installed unit can bypass `start.sh`.** If `/etc/systemd/system/pktlog.service` was installed before this `start.sh`-based `ExecStart` existed (or was hand-edited to invoke `uvicorn` directly), SSL/other `start.sh` behavior silently won't apply — check with `systemctl cat pktlog | grep ExecStart` and reinstall the unit from the repo's `pktlog.service` template if it doesn't match, then `sudo systemctl daemon-reload && sudo systemctl restart pktlog`.
 
 ---
 
