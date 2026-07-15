@@ -19,6 +19,7 @@ SERVICE_GROUP="${PKTLOG_SERVICE_GROUP:-$SERVICE_USER}"
 VENV="$INSTALL_DIR/venv"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$SCRIPT_DIR"
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
 
 echo "=== pktLog Installer ==="
 echo "Install dir: $INSTALL_DIR"
@@ -113,7 +114,7 @@ echo "[8/10] Initializing database and admin user..."
 ADMIN_PASS=$(openssl rand -base64 12 | tr -d '/+=' | head -c 16)
 
 "$VENV/bin/python3" - << PYEOF
-import asyncio, sys
+import asyncio, json, sys
 sys.path.insert(0, '$INSTALL_DIR')
 import os; os.environ['PKTLOG_CONFIG'] = '$INSTALL_DIR/config.yaml'
 
@@ -130,6 +131,20 @@ async def setup():
             "INSERT OR IGNORE INTO users (username, email, hashed_password, role) VALUES (?,?,?,?)",
             ('admin', 'admin@pktlog.local', hashed, 'admin')
         )
+
+        # Seed exactly one collector — this host's own detected IP — instead
+        # of leaving the registry empty or full of placeholder sample rows.
+        local_ip = '$LOCAL_IP'
+        if local_ip:
+            await db.execute(
+                "INSERT OR IGNORE INTO collector_registry (collector_ip, collector_name) VALUES (?, ?)",
+                (local_ip, 'local')
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('base_url', ?)",
+                (json.dumps(f'http://{local_ip}:8768'),)
+            )
+
         await db.commit()
     print("  Database initialized.")
 
@@ -176,7 +191,7 @@ echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║              pktLog installed successfully!              ║"
 echo "╠══════════════════════════════════════════════════════════╣"
-printf "║  URL:           http://%-35s║\n" "$(hostname -I | awk '{print $1}'):8768"
+printf "║  URL:           http://%-35s║\n" "$LOCAL_IP:8768"
 echo "║  Username:      admin                                     ║"
 printf "║  Password:      %-43s║\n" "$ADMIN_PASS"
 echo "║                                                            ║"
