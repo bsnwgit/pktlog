@@ -454,7 +454,7 @@ class DuckDBBackend(StorageBackend):
                 """, params).fetchall()
 
         rows = await self._read(_query) or []
-        return [{"bucket": r[0].isoformat(), "count": r[1]} for r in rows]
+        return [{"bucket": r[0].isoformat() + "Z", "count": r[1]} for r in rows]
 
     async def collector_last_seen(self) -> list[dict]:
         """Last timestamp per collector — used for data-gap alerts."""
@@ -468,7 +468,7 @@ class DuckDBBackend(StorageBackend):
                 """).fetchall()
 
         rows = await self._read(_query) or []
-        return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat()} for r in rows]
+        return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat() + "Z"} for r in rows]
 
     # ── Retention ─────────────────────────────────────────────────────────────
 
@@ -492,8 +492,8 @@ class DuckDBBackend(StorageBackend):
 
 def _row_to_dict(r: tuple) -> dict:
     return {
-        "timestamp":      r[0].isoformat() if r[0] else None,
-        "received_at":    r[1].isoformat() if r[1] else None,
+        "timestamp":      (r[0].isoformat() + "Z") if r[0] else None,
+        "received_at":    (r[1].isoformat() + "Z") if r[1] else None,
         "source_ip":      r[2],
         "source_name":    r[3],
         "facility":       r[4],

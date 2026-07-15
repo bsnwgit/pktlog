@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, LogRecord, LogStats } from '../api/client'
 import { useAuth } from '../store/auth'
+import { useTimezone } from '../hooks/useTimezone'
 import clsx from 'clsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -33,10 +34,11 @@ const CHIP_ACTIVE: Record<Level, string> = {
   CRITICAL: 'bg-red-700/40 text-red-200 border-red-500',
 }
 
-function fmtTs(ts: string): string {
+function fmtTs(ts: string, timeZone: string): string {
   const d = new Date(ts)
   // Include milliseconds manually since fractionalSecondDigits has limited TS support
   const base = d.toLocaleString([], {
+    timeZone,
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
@@ -54,6 +56,7 @@ function shortLogger(logger: string): string {
 export default function Logs() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const timezone = useTimezone()
 
   const [records, setRecords] = useState<LogRecord[]>([])
   const [stats, setStats]     = useState<LogStats | null>(null)
@@ -150,7 +153,7 @@ export default function Logs() {
           <h1 className="text-xl font-semibold text-white">Application Logs</h1>
           <p className="text-sm text-gray-400 mt-0.5">
             {total.toLocaleString()} records stored
-            {stats?.latest_ts && <> · last entry {fmtTs(stats.latest_ts)}</>}
+            {stats?.latest_ts && <> · last entry {fmtTs(stats.latest_ts, timezone)}</>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -310,7 +313,7 @@ export default function Logs() {
                         r.level === 'WARNING' ? 'bg-yellow-950/10' : '',
                       )}
                     >
-                      <td className="px-4 py-1.5 text-gray-500 whitespace-nowrap">{fmtTs(r.ts)}</td>
+                      <td className="px-4 py-1.5 text-gray-500 whitespace-nowrap">{fmtTs(r.ts, timezone)}</td>
                       <td className="px-3 py-1.5">
                         <span className={clsx('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs', LEVEL_STYLES[r.level] ?? '')}>
                           <span className={clsx('w-1 h-1 rounded-full', LEVEL_DOT[r.level] ?? 'bg-gray-400')} />

@@ -50,6 +50,15 @@ class ClickHouseBackend(StorageBackend):
                 user=settings.clickhouse_user,
                 password=settings.clickhouse_password,
                 connect_timeout=10,
+                # A stale/dropped TCP connection (idle timeout, network blip)
+                # can otherwise hang a socket read forever with no exception,
+                # which — since every call goes through _execute()'s single
+                # threading.Lock — freezes ALL future ClickHouse operations
+                # (including the batch writer) silently, with nothing to log.
+                # Bound both so a hang fails fast, releases the lock, and
+                # resets self._client for a clean reconnect on the next call.
+                send_receive_timeout=20,
+                sync_request_timeout=10,
                 settings={"use_numpy": False},
             )
         return self._client
@@ -229,7 +238,7 @@ class ClickHouseBackend(StorageBackend):
         if log_group:
             params["log_group"] = log_group
         rows = await asyncio.to_thread(self._execute, q, params)
-        return [{"bucket": r[0].isoformat(), "count": r[1]} for r in rows]
+        return [{"bucket": r[0].isoformat() + "Z", "count": r[1]} for r in rows]
 
     async def collector_last_seen(self) -> list[dict]:
         """Last timestamp per collector — used for data-gap alerts."""
@@ -240,7 +249,7 @@ class ClickHouseBackend(StorageBackend):
             ORDER BY last_seen DESC
         """
         rows = await asyncio.to_thread(self._execute, q)
-        return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat()} for r in rows]
+        return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat() + "Z"} for r in rows]
 
     # ── Alert-engine metrics ─────────────────────────────────────────────────
 
@@ -364,8 +373,8 @@ class ClickHouseBackend(StorageBackend):
 
 def _row_to_dict(r: tuple) -> dict:
     return {
-        "timestamp":      r[0].isoformat() if r[0] else None,
-        "received_at":    r[1].isoformat() if r[1] else None,
+        "timestamp":      (r[0].isoformat() + "Z") if r[0] else None,
+        "received_at":    (r[1].isoformat() + "Z") if r[1] else None,
         "source_ip":      r[2],
         "source_name":    r[3],
         "facility":       r[4],

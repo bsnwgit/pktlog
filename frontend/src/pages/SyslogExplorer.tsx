@@ -3,6 +3,7 @@
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { api, SyslogRecord, SyslogSearchParams } from '../api/client'
+import { useTimezone } from '../hooks/useTimezone'
 
 // ── Severity config ───────────────────────────────────────────────────────────
 
@@ -45,9 +46,10 @@ function toISOStart(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString()
 }
 
-function fmtTs(iso: string): string {
+function fmtTs(iso: string, timeZone: string): string {
   const d = new Date(iso)
   return d.toLocaleString([], {
+    timeZone,
     month: 'short', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
@@ -58,10 +60,10 @@ function fmtTs(iso: string): string {
 // Every syslog_events column gets its own field here — no conditional
 // hiding, no combining two columns into one line — so the dropdown is a
 // complete, literal listing of the full record, not just a subset.
-function ExpandedRow({ r }: { r: SyslogRecord }) {
+function ExpandedRow({ r, timezone }: { r: SyslogRecord; timezone: string }) {
   const fields: [string, string][] = [
-    ['timestamp',      r.timestamp],
-    ['received_at',    r.received_at],
+    ['timestamp',      fmtTs(r.timestamp, timezone)],
+    ['received_at',    fmtTs(r.received_at, timezone)],
     ['source_ip',      r.source_ip],
     ['source_name',    r.source_name || '—'],
     ['facility',       String(r.facility)],
@@ -119,6 +121,7 @@ export default function SyslogExplorer() {
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const timezone = useTimezone()
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -331,7 +334,7 @@ export default function SyslogExplorer() {
                       }`}
                     >
                       <td className="px-4 py-2 font-mono text-xs text-gray-400 whitespace-nowrap">
-                        {fmtTs(r.timestamp)}
+                        {fmtTs(r.timestamp, timezone)}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`inline-block px-2 py-0.5 text-xs rounded border font-medium capitalize ${badge}`}>
@@ -351,7 +354,7 @@ export default function SyslogExplorer() {
                         <p className="truncate">{r.message}</p>
                       </td>
                     </tr>
-                    {isExpanded && <ExpandedRow r={r} />}
+                    {isExpanded && <ExpandedRow r={r} timezone={timezone} />}
                   </React.Fragment>
                 )
               })}
