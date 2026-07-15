@@ -37,15 +37,29 @@ _RE_5424 = re.compile(
 )
 
 # RFC 3164: <PRI>TIMESTAMP HOSTNAME PROGRAM[PID]: MSG
+# The PROGRAM[PID]: tag is optional here — some devices (e.g. UniFi/EdgeOS-
+# style kernel netfilter LOG output) emit <PRI>TIMESTAMP HOSTNAME followed
+# directly by a raw KV blob with no colon-terminated tag at all. Requiring
+# the tag meant those lines never matched this regex, fell through to the
+# "unparseable" branch below, and got PRI/timestamp/hostname silently
+# dropped in favor of dumping the entire raw line as-is into message.
 _RE_3164 = re.compile(
     r'^<(?P<pri>\d{1,3})>'
     r'(?P<ts>[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+'
     r'(?P<host>\S+)\s+'
-    r'(?P<prog_pid>\S+?)'
-    r'(?:\[(?P<pid>\d+)\])?'
-    r':\s*(?P<msg>.*)',
+    r'(?:(?P<prog_pid>\S+?)(?:\[(?P<pid>\d+)\])?:\s*)?'
+    r'(?P<msg>.*)',
     re.DOTALL,
 )
+
+# Some kernel netfilter LOG lines (UniFi/EdgeOS/VyOS firewall logging, and
+# plain iptables/nftables LOG target output) carry a human-readable summary
+# in DESCR="..." and the actual traffic source in SRC=<ip> — buried inside
+# an otherwise machine-oriented KV blob (IN=/OUT=/MAC=/PROTO=/...). Neither
+# RFC 3164 nor 5424 has a concept of either field, so when present they're
+# extracted directly out of the message text.
+_RE_DESCR = re.compile(r'DESCR="([^"]*)"')
+_RE_KV_SRC = re.compile(r'(?:^|\s)SRC=(\S+)')
 
 # RFC 3164 months
 _MONTHS = {
@@ -73,19 +87,17 @@ def parse(raw: str, received_at: datetime, collector_ip: str = "") -> SyslogReco
     m = _RE_5424.match(raw)
     if m and m.group("ver") == "1":
         _parse_5424(m, record, received_at)
-        record.enrich_names()
-        return record
+    else:
+        # Try RFC 3164
+        m = _RE_3164.match(raw)
+        if m:
+            _parse_3164(m, record, received_at)
+        else:
+            # Neither matched — store raw with received_at and log a warning
+            log.debug("Unparseable syslog line from %s: %.120s", collector_ip, raw)
+            record.message = raw
 
-    # Try RFC 3164
-    m = _RE_3164.match(raw)
-    if m:
-        _parse_3164(m, record, received_at)
-        record.enrich_names()
-        return record
-
-    # Neither matched — store raw with received_at and log a warning
-    log.debug("Unparseable syslog line from %s: %.120s", collector_ip, raw)
-    record.message = raw
+    _extract_netfilter_fields(record)
     record.enrich_names()
     return record
 
@@ -112,6 +124,29 @@ def _parse_5424(m: re.Match, record: SyslogRecord, received_at: datetime) -> Non
     record.message = m.group("msg").strip()
 
 
+def _extract_netfilter_fields(record: SyslogRecord) -> None:
+    """
+    When message looks like kernel netfilter LOG output (DESCR="..." and/or
+    SRC=<ip> present among the IN=/OUT=/MAC=/PROTO=/... KV pairs), replace
+    the technical KV blob with DESCR's human-readable text as message, and
+    prefer the embedded SRC= as source_ip over the syslog HOSTNAME field —
+    for this log type the actual traffic source is far more useful than the
+    reporting device's own name (which is already captured separately as
+    collector_name/collector_ip). raw is left untouched either way.
+    """
+    text = record.message
+    if "DESCR=" not in text and "SRC=" not in text:
+        return
+
+    descr = _RE_DESCR.search(text)
+    if descr:
+        record.message = descr.group(1).strip()
+
+    src = _RE_KV_SRC.search(text)
+    if src:
+        record.source_ip = src.group(1)
+
+
 def _parse_3164(m: re.Match, record: SyslogRecord, received_at: datetime) -> None:
     pri = int(m.group("pri"))
     record.facility = pri >> 3
@@ -120,8 +155,8 @@ def _parse_3164(m: re.Match, record: SyslogRecord, received_at: datetime) -> Non
     record.timestamp = _parse_ts_3164(m.group("ts"), received_at)
     record.source_ip = m.group("host")
 
-    prog_pid = m.group("prog_pid").rstrip(":")
-    record.program = prog_pid
+    prog_pid = m.group("prog_pid")  # None when the line has no TAG[PID]: prefix at all
+    record.program = prog_pid.rstrip(":") if prog_pid else ""
     record.pid = m.group("pid") or ""
     record.message = m.group("msg").strip()
 
