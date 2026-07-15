@@ -28,8 +28,8 @@ sudo systemctl restart pktlog
 
 # 4. Open the firewall (adjust if PKTLOG_INSTALL_DIR/port differ)
 sudo ufw allow 8768/tcp
-sudo ufw allow 8761/tcp
-sudo ufw allow 8761/udp
+sudo ufw allow 5514/tcp
+sudo ufw allow 5514/udp
 
 # 5. Open http://<server-ip>:8768 and log in with the admin credentials from step 2
 ```
@@ -48,7 +48,7 @@ All settings in `config.example.yaml` can also be passed as `PKTLOG_*` environme
 | `PKTLOG_PORT` | `8768` | Listen port (HTTP; HTTPS if SSL cert configured) |
 | `PKTLOG_DB_PATH` | `/opt/pktlog/pktlog.db` | SQLite app database path |
 | `PKTLOG_CLICKHOUSE_HOST` / `_PORT` / `_DATABASE` / `_USER` / `_PASSWORD` | `localhost` / `9000` / `pktlog` / `default` / `` | ClickHouse connection |
-| `PKTLOG_SYSLOG_PORT` | `8761` | Syslog ingest port (UDP + TCP) |
+| `PKTLOG_SYSLOG_PORT` | `5514` | Syslog ingest port (UDP + TCP) |
 | `PKTLOG_SECRET_KEY` | (required) | JWT signing key — `openssl rand -hex 32` |
 | `PKTLOG_CORS_ORIGINS` | `["*"]` | Restrict to your dashboard origin in production |
 | `PKTLOG_LOG_LEVEL` / `PKTLOG_LOG_FILE` | `info` / `/opt/pktlog/logs/pktlog.log` | Logging |
@@ -58,7 +58,7 @@ All settings in `config.example.yaml` can also be passed as `PKTLOG_*` environme
 ## Architecture
 
 ```
-Syslog Collectors ──UDP/TCP:8761──► pktLog Ingest Listener
+Syslog Collectors ──UDP/TCP:5514──► pktLog Ingest Listener
                                           │
                                     Parse + Enrich
                                     (RFC 3164/5424 → org/group/site)
@@ -204,7 +204,7 @@ openssl rand -hex 32   # use this as secret_key
 | `clickhouse_host` | `localhost` | ClickHouse host |
 | `clickhouse_port` | `9000` | ClickHouse native protocol port |
 | `clickhouse_database` | `pktlog` | ClickHouse database name |
-| `syslog_port` | `8761` | Syslog ingest port (UDP + TCP) |
+| `syslog_port` | `5514` | Syslog ingest port (UDP + TCP) |
 | `secret_key` | **CHANGE THIS** | JWT signing key (32+ random bytes) |
 | `cors_origins` | `["*"]` | Restrict to your dashboard origin in production |
 | `log_file` | `/opt/pktlog/logs/pktlog.log` | Log path |
@@ -272,8 +272,8 @@ sudo systemctl status pktlog
 
 ```bash
 sudo ufw allow 8768/tcp        # web UI / API
-sudo ufw allow 8761/tcp        # syslog ingest (TCP)
-sudo ufw allow 8761/udp        # syslog ingest (UDP)
+sudo ufw allow 5514/tcp        # syslog ingest (TCP)
+sudo ufw allow 5514/udp        # syslog ingest (UDP)
 ```
 
 ### 12. Verify
@@ -365,7 +365,7 @@ pktlog/
 │   ├── auth/                Local (JWT+bcrypt), Okta OIDC, SAML
 │   ├── alerts/               Alert evaluation engine
 │   ├── ingest/
-│   │   ├── listener.py       Async UDP+TCP syslog listener (port 8761)
+│   │   ├── listener.py       Async UDP+TCP syslog listener (port 5514)
 │   │   ├── parser.py         RFC 3164 / RFC 5424 parsing
 │   │   ├── normalizer.py     org/group/site enrichment
 │   │   └── writer.py         Batch writer → storage backend

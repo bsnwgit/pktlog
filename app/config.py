@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     clickhouse_password: str = Field(default=_yaml_cfg.get("clickhouse_password", ""))
 
     # ── Syslog ingest ─────────────────────────────────────────────────────────
-    syslog_port: int = Field(default=_yaml_cfg.get("syslog_port", 8761))
+    syslog_port: int = Field(default=_yaml_cfg.get("syslog_port", 5514))
     journal_dir: str = Field(
         default=_yaml_cfg.get("journal_dir", str(_INSTALL_DIR / "ingest_journal"))
     )
