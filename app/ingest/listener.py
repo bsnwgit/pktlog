@@ -1,5 +1,5 @@
 """
-Syslog listener — async UDP + TCP on port 8761.
+Syslog listener — async UDP + TCP on the configured syslog_port (default 5514).
 
 TCP framing: non-transparent (newline-delimited, RFC 6587 §3.4.2).
 Max message size: 64 KB (handles oversized messages gracefully).

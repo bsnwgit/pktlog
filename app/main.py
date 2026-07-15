@@ -99,7 +99,6 @@ async def lifespan(app: FastAPI):
     from app.ingest.listener import get_listener
     listener = get_listener()
     await listener.start()
-    log.info("Syslog listener started on port 8761")
 
     yield
 
