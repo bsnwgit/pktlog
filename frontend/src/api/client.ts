@@ -79,11 +79,22 @@ async function tryRefresh(): Promise<boolean> {
 
 export const api = {
   // ── Auth ──────────────────────────────────────────────────────────────────
-  login: (username: string, password: string) =>
-    request<{ access_token: string; role: string }>('/auth/login', {
+  // Deliberately bypasses request() — a bad password here is a normal login
+  // failure, not an expired session, and must not trigger the 401 handler's
+  // refresh-then-redirect-to-/login flow (that would hard-reload the login
+  // page itself before the error message is even visible).
+  login: async (username: string, password: string) => {
+    const res = await fetch('/api/auth/login', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
-    }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || res.statusText)
+    }
+    return res.json() as Promise<{ access_token: string; role: string }>
+  },
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   // ── Syslog ────────────────────────────────────────────────────────────────
