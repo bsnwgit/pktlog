@@ -67,7 +67,7 @@ DEFAULTS: dict[str, Any] = {
 
     # General
     "app_name": "pktLog",
-    "base_url": "http://<PKT_SERVER_IP>:8768",
+    "base_url": "",  # install.sh seeds this with the detected server IP; blank if unset
     "timezone": "UTC",
 
     # AI assistant

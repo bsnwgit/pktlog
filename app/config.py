@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    # In production, set this to your actual origin (e.g. http://<PKT_SERVER_IP>:8768)
+    # In production, set this to your actual origin (e.g. http://192.0.2.10:8768)
     cors_origins: list[str] = Field(
         default=_yaml_cfg.get("cors_origins", ["*"])
     )
