@@ -5,12 +5,14 @@ All settings are stored as JSON values in the SQLite settings table.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import AdminUser, CurrentUser
 
@@ -65,7 +67,7 @@ DEFAULTS: dict[str, Any] = {
 
     # General
     "app_name": "pktLog",
-    "base_url": "http://<PKT_SERVER_IP>:8768",
+    "base_url": "",  # install.sh seeds this with the detected server IP; blank if unset
     "timezone": "UTC",
 
     # AI assistant
@@ -84,13 +86,14 @@ DEFAULTS: dict[str, Any] = {
     "alert_event_retention_days": 90, # Days to keep alert_events + notification_log rows
 
     # Ingest
+    "syslog_port": get_settings().syslog_port,  # UDP+TCP port; config.yaml value seeds the first-run default
     "journal_max_gb": 5,            # Max disk for ingest file journal (GB)
 
     # Backup
     "backup_enabled": False,
     "backup_interval_hours": 24,
     "backup_rotation_count": 5,
-    "backup_path": "/mnt/software/pktlog_backups",
+    "backup_path": str(Path(get_settings().install_dir) / "backups"),
     "backup_include_clickhouse": True,
 }
 

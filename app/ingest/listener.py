@@ -1,5 +1,5 @@
 """
-Syslog listener — async UDP + TCP on port 8761.
+Syslog listener — async UDP + TCP on the configured syslog_port (default 5514).
 
 TCP framing: non-transparent (newline-delimited, RFC 6587 §3.4.2).
 Max message size: 64 KB (handles oversized messages gracefully).
@@ -26,11 +26,22 @@ log = logging.getLogger("pktlog.ingest.listener")
 _MAX_SIZE = 65536   # 64 KB UDP datagram cap
 
 
-def _get_port() -> int:
+async def _get_port() -> int:
+    """Syslog port — SQLite settings value wins if present (Settings UI →
+    Ingest tab), otherwise falls back to config.yaml/env (app/config.py)."""
+    port = get_settings().syslog_port
     try:
-        return get_settings().syslog_port
+        import aiosqlite, json
+        async with aiosqlite.connect(get_settings().db_path) as db:
+            async with db.execute(
+                "SELECT value FROM settings WHERE key = 'syslog_port'"
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    port = int(json.loads(row[0]))
     except Exception:
-        return 8761
+        pass
+    return port
 
 
 # ── UDP protocol ──────────────────────────────────────────────────────────────
@@ -96,9 +107,13 @@ async def _process(raw: str, collector_ip: str, received_at: datetime) -> None:
     try:
         record = parse(raw, received_at, collector_ip)
         normalizer = get_normalizer()
-        await normalizer.enrich(record)
+        enriched = await normalizer.enrich(record)
+        if enriched is None:
+            # Collector not registered + enabled in Settings -> Collectors —
+            # dropped, not stored.
+            return
         writer = get_writer()
-        await writer.enqueue(record)
+        await writer.enqueue(enriched)
     except Exception as e:
         log.error("Ingest pipeline error from %s: %s", collector_ip, e)
 
@@ -113,7 +128,7 @@ class SyslogListener:
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
-        port = _get_port()
+        port = await _get_port()
 
         # With multiple uvicorn workers, only one process can own the port.
         # The others skip binding gracefully — the writer still starts so

@@ -32,21 +32,28 @@ class Normalizer:
 
     # ── Public ────────────────────────────────────────────────────────────────
 
-    async def enrich(self, record: SyslogRecord) -> SyslogRecord:
-        """Mutates record in-place, returns it for chaining."""
+    async def enrich(self, record: SyslogRecord) -> Optional[SyslogRecord]:
+        """
+        Mutates record in-place and returns it — or returns None if
+        record.collector_ip isn't registered and enabled in
+        collector_registry, in which case the caller must drop the record.
+        Settings -> Collectors is the gateway for what's allowed to persist:
+        a device can be sending data on the wire, but nothing gets stored
+        until its IP is added there and marked enabled.
+        """
         await self._maybe_refresh()
 
-        # Collector → collector_name, org, log_group, site
         col = self._collector_cache.get(record.collector_ip)
-        if col:
-            record.collector_name = col["collector_name"]
-            record.org            = col["org"]
-            record.log_group      = col["log_group"]
-            if not record.site:
-                record.site = col["site"]
-        else:
-            # Unknown collector — use IP as name, leave hierarchy blank
-            record.collector_name = record.collector_ip
+        if not col:
+            from app.alerts.engine import AlertEngine
+            AlertEngine.notify_unknown_sampler(record.collector_ip)
+            return None
+
+        record.collector_name = col["collector_name"]
+        record.org            = col["org"]
+        record.log_group      = col["log_group"]
+        if not record.site:
+            record.site = col["site"]
 
         # Device registry → source_name, site (site from device takes priority)
         dev = self._device_cache.get(record.source_ip)
@@ -54,6 +61,8 @@ class Normalizer:
             record.source_name = dev["name"]
             if dev["site"]:
                 record.site = dev["site"]
+
+        return record
 
         return record
 

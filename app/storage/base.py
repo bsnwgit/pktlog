@@ -66,3 +66,55 @@ class StorageBackend(ABC):
     @abstractmethod
     async def collector_last_seen(self) -> list[dict]:
         """Last received timestamp per collector — used for data-gap alerting."""
+
+    # ── Alert-engine metrics ─────────────────────────────────────────────────
+    # Concrete (non-abstract) with safe zero/empty defaults so a backend that
+    # hasn't implemented them (e.g. DuckDB) degrades gracefully instead of
+    # crashing the alert engine — callers already treat 0/empty as "not
+    # applicable" (see app/alerts/engine.py).
+
+    async def count_events_in_window(
+        self,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        program: Optional[str] = None,
+    ) -> int:
+        """Count of syslog events in the last window_min minutes, optionally filtered."""
+        return 0
+
+    async def count_events_baseline(
+        self,
+        baseline_days: int,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        program: Optional[str] = None,
+    ) -> float:
+        """Average event count over window_min-sized buckets across the past
+        baseline_days days — used as the comparison baseline for rate-spike alerts."""
+        return 0.0
+
+    async def top_sources_in_window(
+        self,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        program: Optional[str] = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Top source_ip by event count in the window."""
+        return []
+
+    async def top_talker_in_window(
+        self,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+    ) -> tuple[Optional[str], int]:
+        """Single top talker (source_ip, count) in the window."""
+        return None, 0
+
+    async def table_size_gb(self, table: str) -> float:
+        """On-disk size of a table in GB. 0 if not applicable or not found."""
+        return 0.0

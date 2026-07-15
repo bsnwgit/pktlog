@@ -10,11 +10,17 @@ Design notes:
   hot path (emit() never blocks callers).
 - A ring-buffer cap (default 10 000 rows) is enforced after every batch
   flush to keep the table small.
-- Level is configurable at runtime (default WARNING) — set via
-  SQLiteLogHandler.set_level(logging.DEBUG) when deep troubleshooting.
+- Level is configurable at runtime (default INFO) — set via
+  SQLiteLogHandler.set_capture_level(logging.DEBUG) when deep
+  troubleshooting, or POST /api/logs/level from the UI. Since pktlog runs
+  multiple worker processes, each with its own handler instance, the
+  background worker thread also polls the settings table (key
+  log_capture_level) on each flush tick so a change made via one worker's
+  API request propagates to every worker, not just the one that handled it.
 """
 from __future__ import annotations
 
+import json
 import logging
 import queue
 import sqlite3
@@ -42,7 +48,7 @@ class SQLiteLogHandler(logging.Handler):
         batch_size: int = 50,
         flush_interval: float = 2.0,
     ) -> None:
-        super().__init__(level=logging.WARNING)
+        super().__init__(level=logging.INFO)
         self.db_path = str(db_path)
         self.max_records = max_records
         self.batch_size = batch_size
@@ -74,6 +80,31 @@ class SQLiteLogHandler(logging.Handler):
         root = logging.getLogger("pktlog")
         if root.level > level:
             root.setLevel(level)
+
+    def _check_shared_level(self, conn: sqlite3.Connection) -> None:
+        """
+        Poll for a level change made via the API in a *different* worker
+        process. pktlog runs multiple uvicorn workers, each with its own
+        SQLiteLogHandler instance — POST /api/logs/level only updates the
+        process that handled the request directly, so every handler also
+        checks the shared settings table on each background-flush tick and
+        applies a change made elsewhere.
+        """
+        try:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = 'log_capture_level'"
+            ).fetchone()
+            if not row:
+                return
+            level_no = getattr(logging, json.loads(row[0]), None)
+            if not isinstance(level_no, int) or level_no == self.level:
+                return
+            self.setLevel(level_no)
+            root = logging.getLogger("pktlog")
+            if root.level != level_no:
+                root.setLevel(level_no)
+        except Exception:
+            pass  # settings table may not exist yet, or value malformed — ignore
 
     def stop(self) -> None:
         """Flush remaining records and stop the background worker."""
@@ -113,6 +144,8 @@ class SQLiteLogHandler(logging.Handler):
 
         try:
             while True:
+                self._check_shared_level(conn)
+
                 batch: list = []
                 try:
                     # Block until at least one item arrives, then collect more
