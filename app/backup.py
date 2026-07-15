@@ -37,7 +37,7 @@ def _read_backup_settings_sync(db_path: str) -> dict:
         "backup_enabled": False,
         "backup_interval_hours": 24,
         "backup_rotation_count": 5,
-        "backup_path": "/mnt/software/pktlog_backups",
+        "backup_path": str(Path(_cfg.install_dir) / "backups"),
         "backup_include_clickhouse": True,
     }
     try:
@@ -78,7 +78,7 @@ def run_backup_sync(db_path: str, ch_database: str) -> dict:
         result["files"].append("pktlog.db")
 
     # ── config.yaml ───────────────────────────────────────────────────────────
-    for candidate in [Path("config.yaml"), Path("/mnt/software/pktlog/config.yaml")]:
+    for candidate in [Path("config.yaml"), Path(_cfg.install_dir) / "config.yaml"]:
         if candidate.exists():
             shutil.copy2(str(candidate), str(snap_dir / "config.yaml"))
             result["files"].append("config.yaml")
@@ -96,7 +96,7 @@ def run_backup_sync(db_path: str, ch_database: str) -> dict:
                         "--host", "localhost",
                         "--port", "9000",
                         "--database", ch_database,
-                        "--query", "SELECT * FROM flows FORMAT CSVWithNames",
+                        "--query", "SELECT * FROM syslog_events FORMAT CSVWithNames",
                     ],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

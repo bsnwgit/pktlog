@@ -1,11 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { api, AlertRule, AlertEvent, getToken } from '../api/client'
 import { useWebSocket, type WsMessage, type AlertFiredPayload } from '../hooks/useWebSocket'
+import { useTimezone } from '../hooks/useTimezone'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtTime(ts: string): string {
+function fmtTime(ts: string, timeZone: string): string {
   return new Date(ts).toLocaleString([], {
+    timeZone,
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
@@ -18,31 +21,22 @@ const SEV_STYLES: Record<string, string> = {
 }
 
 const TOPIC_STYLES: Record<string, string> = {
-  Traffic:        'bg-sky-500/15 text-sky-400 border border-sky-500/30',
-  Security:       'bg-orange-500/15 text-orange-400 border border-orange-500/30',
+  Volume:         'bg-sky-500/15 text-sky-400 border border-sky-500/30',
   Infrastructure: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
 }
 
 const CHANNELS_AVAILABLE = ['inapp', 'slack', 'email', 'pagerduty', 'webhook', 'tracecat']
 
 const RULE_TYPES: Array<{ value: string; label: string; group: string; hint: string }> = [
-  // Traffic thresholds
-  { value: 'threshold',          label: 'Threshold',             group: 'Traffic',        hint: 'Fire when a traffic metric exceeds a fixed value' },
-  { value: 'rate_spike',         label: 'Rate spike',            group: 'Traffic',        hint: 'Fire when traffic spikes relative to a rolling baseline' },
-  { value: 'top_talker',         label: 'Top talker',            group: 'Traffic',        hint: 'Fire when a single IP dominates traffic in the window' },
-  { value: 'elephant_flow',      label: 'Elephant flow',         group: 'Traffic',        hint: 'Fire when individual flows carry an unusually large byte count' },
-  { value: 'inter_site_traffic', label: 'Inter-site traffic',    group: 'Traffic',        hint: 'Fire on excessive cross-site traffic volume' },
-  // Security / anomaly
-  { value: 'port_protocol',      label: 'Port / protocol',       group: 'Security',       hint: 'Fire on any traffic observed on a specific port' },
-  { value: 'connection_burst',   label: 'Connection burst',      group: 'Security',       hint: 'Fire when one IP makes an abnormal number of connections' },
-  { value: 'port_scan',          label: 'Port scan',             group: 'Security',       hint: 'Fire when one IP contacts too many distinct destination ports' },
-  { value: 'internal_spread',    label: 'Internal spread',       group: 'Security',       hint: 'Fire when one IP reaches too many distinct destinations' },
-  { value: 'protocol_anomaly',   label: 'Protocol anomaly',      group: 'Security',       hint: 'Fire when unexpected protocol appears on a well-known port' },
+  // Event volume
+  { value: 'threshold',       label: 'Threshold',            group: 'Volume',         hint: 'Fire when syslog event volume exceeds a fixed value' },
+  { value: 'rate_spike',      label: 'Rate spike',           group: 'Volume',         hint: 'Fire when event volume spikes relative to a rolling baseline' },
+  { value: 'top_talker',      label: 'Top talker',           group: 'Volume',         hint: 'Fire when a single source IP dominates event volume in the window' },
   // Infrastructure
-  { value: 'data_gap',           label: 'Data gap',              group: 'Infrastructure', hint: 'Fire when a known sampler stops sending flows' },
-  { value: 'new_host',           label: 'New host',              group: 'Infrastructure', hint: 'Fire when an unrecognized device sends NetFlow data' },
-  { value: 'ingest_rate_low',    label: 'Ingest rate low',       group: 'Infrastructure', hint: 'Fire when the overall ingest rate drops below a minimum' },
-  { value: 'clickhouse_size',    label: 'ClickHouse table size', group: 'Infrastructure', hint: 'Fire when a ClickHouse table exceeds a storage threshold' },
+  { value: 'data_gap',        label: 'Data gap',             group: 'Infrastructure', hint: 'Fire when a known collector stops sending syslog data' },
+  { value: 'new_host',        label: 'New host',             group: 'Infrastructure', hint: 'Fire when an unrecognized collector sends syslog data' },
+  { value: 'ingest_rate_low', label: 'Ingest rate low',      group: 'Infrastructure', hint: 'Fire when the overall ingest rate drops below a minimum' },
+  { value: 'clickhouse_size', label: 'ClickHouse table size', group: 'Infrastructure', hint: 'Fire when a ClickHouse table exceeds a storage threshold' },
 ]
 
 function ruleGroup(rule_type: string): string {
@@ -50,20 +44,13 @@ function ruleGroup(rule_type: string): string {
 }
 
 const RULE_DEFAULTS: Record<string, { name: string; description: string }> = {
-  threshold:          { name: 'Traffic threshold',         description: 'Alert when total traffic volume exceeds a set threshold' },
-  rate_spike:         { name: 'Traffic rate spike',        description: 'Alert when traffic spikes above the rolling baseline by a multiplier' },
-  top_talker:         { name: 'Top talker threshold',      description: 'Alert when a single source IP dominates traffic in the eval window' },
-  elephant_flow:      { name: 'Elephant flow detected',    description: 'Alert when individual flows exceed a large-byte threshold' },
-  inter_site_traffic: { name: 'Inter-site traffic spike',  description: 'Alert when cross-site traffic volume exceeds a threshold' },
-  port_protocol:      { name: 'Port / protocol traffic',   description: 'Alert on any traffic observed on a specific port and protocol' },
-  connection_burst:   { name: 'Connection burst',          description: 'Alert when a single IP makes an abnormal number of connections' },
-  port_scan:          { name: 'Port scan detected',        description: 'Alert when a source IP hits an unusual number of distinct destination ports' },
-  internal_spread:    { name: 'Internal spread detected',  description: 'Alert when a source IP reaches an unusual number of distinct destinations' },
-  protocol_anomaly:   { name: 'Protocol anomaly',          description: 'Alert when unexpected protocol traffic is seen on a well-known port' },
-  data_gap:           { name: 'Collector data gap',        description: 'Alert when a known sampler stops sending flows for a set period' },
-  new_host:           { name: 'Unknown sampler detected',  description: 'Alert when an unrecognized host sends NetFlow data' },
-  ingest_rate_low:    { name: 'Ingest rate too low',       description: 'Alert when the overall flow ingest rate drops below a minimum' },
-  clickhouse_size:    { name: 'ClickHouse table too large', description: 'Alert when a ClickHouse table exceeds a storage size threshold' },
+  threshold:          { name: 'Event volume threshold',      description: 'Alert when syslog event volume exceeds a set threshold' },
+  rate_spike:         { name: 'Event rate spike',            description: 'Alert when event volume spikes above the rolling baseline by a multiplier' },
+  top_talker:         { name: 'Top talker threshold',        description: 'Alert when a single source IP dominates event volume in the eval window' },
+  data_gap:           { name: 'Collector data gap',          description: 'Alert when a known collector stops sending syslog data for a set period' },
+  new_host:           { name: 'Unknown collector detected',  description: 'Alert when an unrecognized collector sends syslog data' },
+  ingest_rate_low:    { name: 'Ingest rate too low',         description: 'Alert when the overall syslog ingest rate drops below a minimum' },
+  clickhouse_size:    { name: 'ClickHouse table too large',  description: 'Alert when a ClickHouse table exceeds a storage size threshold' },
 }
 
 // ── Conditions builder ────────────────────────────────────────────────────────
@@ -109,12 +96,6 @@ function SelectInput({ value, onChange, options }: {
   )
 }
 
-const METRIC_OPTS = [
-  { value: 'bytes',   label: 'Bytes' },
-  { value: 'packets', label: 'Packets' },
-  { value: 'flows',   label: 'Flows' },
-]
-
 const OPERATOR_OPTS = [
   { value: 'gt',  label: '> greater than' },
   { value: 'gte', label: '≥ at least' },
@@ -122,17 +103,17 @@ const OPERATOR_OPTS = [
   { value: 'lte', label: '≤ at most' },
 ]
 
-const PROTO_OPTS = [
-  { value: 'any', label: 'Any protocol' },
-  { value: 'TCP', label: 'TCP' },
-  { value: 'UDP', label: 'UDP' },
-  { value: 'ICMP', label: 'ICMP' },
-]
-
-const DIR_OPTS = [
-  { value: 'dst', label: 'Destination port' },
-  { value: 'src', label: 'Source port' },
-  { value: 'any', label: 'Either direction' },
+// Matches SyslogExplorer.tsx's SEV_OPTIONS for consistency
+const SEVERITY_MAX_OPTS = [
+  { value: '',  label: 'All severities' },
+  { value: '0', label: '≤ Emergency (0)' },
+  { value: '1', label: '≤ Alert (1)' },
+  { value: '2', label: '≤ Critical (2)' },
+  { value: '3', label: '≤ Error (3)' },
+  { value: '4', label: '≤ Warning (4)' },
+  { value: '5', label: '≤ Notice (5)' },
+  { value: '6', label: '≤ Info (6)' },
+  { value: '7', label: 'All (≤ Debug)' },
 ]
 
 function ConditionsBuilder({ ruleType, conds, onChange }: {
@@ -146,7 +127,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
   if (ruleType === 'data_gap') {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Silence threshold (minutes)" hint="Alert if a sampler sends no flows for this long">
+        <Field label="Silence threshold (minutes)" hint="Alert if a collector sends no syslog data for this long">
           <TextInput type="number" value={String(g('silence_minutes', 10))} onChange={v => set('silence_minutes', parseInt(v) || 10)} />
         </Field>
       </div>
@@ -155,24 +136,27 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
 
   if (ruleType === 'new_host') {
     return (
-      <p className="text-xs text-gray-500 italic">No conditions — fires whenever an unrecognized sampler sends NetFlow data.</p>
+      <p className="text-xs text-gray-500 italic">No conditions — fires whenever an unrecognized collector sends syslog data.</p>
     )
   }
 
   if (ruleType === 'threshold') {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Metric">
-          <SelectInput value={String(g('metric', 'bytes'))} onChange={v => set('metric', v)} options={METRIC_OPTS} />
-        </Field>
         <Field label="Operator">
           <SelectInput value={String(g('operator', 'gt'))} onChange={v => set('operator', v)} options={OPERATOR_OPTS} />
         </Field>
-        <Field label="Threshold value" hint="Bytes, packet count, or flow count depending on metric">
+        <Field label="Threshold value" hint="Number of syslog events in the eval window">
           <TextInput type="number" value={String(g('value', 0))} onChange={v => set('value', parseFloat(v) || 0)} />
         </Field>
-        <Field label="Sampler IP (optional)" hint="Leave blank to check all samplers">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+        <Field label="Minimum severity (optional)" hint="Only count events at least this severe">
+          <SelectInput value={String(g('severity_max', ''))} onChange={v => set('severity_max', v === '' ? '' : parseInt(v))} options={SEVERITY_MAX_OPTS} />
+        </Field>
+        <Field label="Program (optional)" hint="Only count events from this program">
+          <TextInput value={String(g('program', ''))} onChange={v => set('program', v)} placeholder="e.g. sshd" />
+        </Field>
+        <Field label="Collector IP (optional)" hint="Leave blank to check all collectors">
+          <TextInput value={String(g('collector_ip', ''))} onChange={v => set('collector_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -181,36 +165,20 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
   if (ruleType === 'rate_spike') {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Metric">
-          <SelectInput value={String(g('metric', 'bytes'))} onChange={v => set('metric', v)} options={METRIC_OPTS} />
-        </Field>
         <Field label="Spike multiplier" hint="Alert when current rate is this many times the baseline">
           <TextInput type="number" value={String(g('multiplier', 3))} onChange={v => set('multiplier', parseFloat(v) || 3)} />
         </Field>
         <Field label="Baseline period (days)" hint="Rolling average over this many days">
           <TextInput type="number" value={String(g('baseline_days', 7))} onChange={v => set('baseline_days', parseInt(v) || 7)} />
         </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+        <Field label="Minimum severity (optional)" hint="Only count events at least this severe">
+          <SelectInput value={String(g('severity_max', ''))} onChange={v => set('severity_max', v === '' ? '' : parseInt(v))} options={SEVERITY_MAX_OPTS} />
         </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'port_protocol') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Port number">
-          <TextInput type="number" value={String(g('port', ''))} onChange={v => set('port', parseInt(v) || 0)} placeholder="e.g. 22" />
+        <Field label="Program (optional)" hint="Only count events from this program">
+          <TextInput value={String(g('program', ''))} onChange={v => set('program', v)} placeholder="e.g. sshd" />
         </Field>
-        <Field label="Protocol">
-          <SelectInput value={String(g('protocol', 'any'))} onChange={v => set('protocol', v)} options={PROTO_OPTS} />
-        </Field>
-        <Field label="Direction">
-          <SelectInput value={String(g('direction', 'dst'))} onChange={v => set('direction', v)} options={DIR_OPTS} />
-        </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+        <Field label="Collector IP (optional)">
+          <TextInput value={String(g('collector_ip', ''))} onChange={v => set('collector_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -219,108 +187,14 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
   if (ruleType === 'top_talker') {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Metric">
-          <SelectInput value={String(g('metric', 'bytes'))} onChange={v => set('metric', v)} options={METRIC_OPTS} />
-        </Field>
-        <Field label="Threshold" hint="Alert when any single IP exceeds this value in the eval window">
+        <Field label="Threshold" hint="Alert when any single source IP sends more than this many events in the eval window">
           <TextInput type="number" value={String(g('threshold', 0))} onChange={v => set('threshold', parseFloat(v) || 0)} />
         </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+        <Field label="Minimum severity (optional)" hint="Only count events at least this severe">
+          <SelectInput value={String(g('severity_max', ''))} onChange={v => set('severity_max', v === '' ? '' : parseInt(v))} options={SEVERITY_MAX_OPTS} />
         </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'elephant_flow') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Min flow size (MB)" hint="Alert when any single flow record exceeds this size">
-          <TextInput type="number" value={String(g('threshold_mb', 100))} onChange={v => set('threshold_mb', parseFloat(v) || 100)} placeholder="e.g. 100" />
-        </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
-        </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'inter_site_traffic') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Metric">
-          <SelectInput value={String(g('metric', 'bytes'))} onChange={v => set('metric', v)} options={METRIC_OPTS} />
-        </Field>
-        <Field label="Threshold" hint="Alert when inter-site traffic exceeds this in the eval window">
-          <TextInput type="number" value={String(g('threshold', 0))} onChange={v => set('threshold', parseFloat(v) || 0)} />
-        </Field>
-        <Field label="Site A (optional)" hint="e.g. collector-a — leave blank to match all sites">
-          <TextInput value={String(g('site_a', ''))} onChange={v => set('site_a', v)} placeholder="e.g. collector-a" />
-        </Field>
-        <Field label="Site B (optional)" hint="e.g. collector-b — leave blank to match all sites">
-          <TextInput value={String(g('site_b', ''))} onChange={v => set('site_b', v)} placeholder="e.g. collector-b" />
-        </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'connection_burst') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Max connections" hint="Alert when any single IP makes more connections than this in the eval window">
-          <TextInput type="number" value={String(g('threshold_connections', 1000))} onChange={v => set('threshold_connections', parseInt(v) || 1000)} />
-        </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
-        </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'port_scan') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Distinct port threshold" hint="Alert when any single src_ip hits more than this many unique dst ports in the eval window">
-          <TextInput type="number" value={String(g('threshold_ports', 50))} onChange={v => set('threshold_ports', parseInt(v) || 50)} />
-        </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
-        </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'internal_spread') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Distinct destination threshold" hint="Alert when any single src_ip reaches more than this many unique dst IPs">
-          <TextInput type="number" value={String(g('threshold_ips', 30))} onChange={v => set('threshold_ips', parseInt(v) || 30)} />
-        </Field>
-        <Field label="Source subnet filter (optional)" hint="Only check src IPs within this CIDR, e.g. 10.0.0.0/8">
-          <TextInput value={String(g('src_subnet', ''))} onChange={v => set('src_subnet', v)} placeholder="e.g. 10.0.0.0/8" />
-        </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
-        </Field>
-      </div>
-    )
-  }
-
-  if (ruleType === 'protocol_anomaly') {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Port number" hint="Well-known port to monitor, e.g. 22 (SSH), 53 (DNS), 443 (HTTPS)">
-          <TextInput type="number" value={String(g('port', ''))} onChange={v => set('port', parseInt(v) || 0)} placeholder="e.g. 22" />
-        </Field>
-        <Field label="Expected protocol" hint="Flows using any other protocol will trigger the alert">
-          <SelectInput value={String(g('expected_proto', 'TCP'))} onChange={v => set('expected_proto', v)}
-            options={[{ value: 'TCP', label: 'TCP' }, { value: 'UDP', label: 'UDP' }, { value: 'ICMP', label: 'ICMP' }]} />
-        </Field>
-        <Field label="Direction">
-          <SelectInput value={String(g('direction', 'dst'))} onChange={v => set('direction', v)} options={DIR_OPTS} />
-        </Field>
-        <Field label="Sampler IP (optional)">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+        <Field label="Collector IP (optional)">
+          <TextInput value={String(g('collector_ip', ''))} onChange={v => set('collector_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -329,11 +203,11 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
   if (ruleType === 'ingest_rate_low') {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Minimum flows/sec" hint="Alert when ingest rate falls below this threshold">
-          <TextInput type="number" value={String(g('min_flows_per_sec', 1))} onChange={v => set('min_flows_per_sec', parseFloat(v) || 1)} placeholder="e.g. 10" />
+        <Field label="Minimum events/sec" hint="Alert when ingest rate falls below this threshold">
+          <TextInput type="number" value={String(g('min_events_per_sec', 1))} onChange={v => set('min_events_per_sec', parseFloat(v) || 1)} placeholder="e.g. 1" />
         </Field>
-        <Field label="Sampler IP (optional)" hint="Leave blank to check total ingest across all samplers">
-          <TextInput value={String(g('sampler_ip', ''))} onChange={v => set('sampler_ip', v)} placeholder="e.g. <COLLECTOR_A_HOST>" />
+        <Field label="Collector IP (optional)" hint="Leave blank to check total ingest across all collectors">
+          <TextInput value={String(g('collector_ip', ''))} onChange={v => set('collector_ip', v)} placeholder="e.g. 192.0.2.10" />
         </Field>
       </div>
     )
@@ -346,7 +220,7 @@ function ConditionsBuilder({ ruleType, conds, onChange }: {
           <TextInput type="number" value={String(g('threshold_gb', 10))} onChange={v => set('threshold_gb', parseFloat(v) || 10)} placeholder="e.g. 50" />
         </Field>
         <Field label="Table name" hint="ClickHouse table to monitor">
-          <TextInput value={String(g('table', 'flows'))} onChange={v => set('table', v)} placeholder="flows" />
+          <TextInput value={String(g('table', 'syslog_events'))} onChange={v => set('table', v)} placeholder="syslog_events" />
         </Field>
       </div>
     )
@@ -363,18 +237,7 @@ function fmtVal(v: unknown): string {
   return String(v)
 }
 
-function fmtBytes(b: number): string {
-  if (b >= 1_000_000_000) return `${(b/1_000_000_000).toFixed(1)} GB`
-  if (b >= 1_000_000) return `${(b/1_000_000).toFixed(1)} MB`
-  if (b >= 1_000) return `${(b/1_000).toFixed(1)} KB`
-  return `${b} B`
-}
-
-type Contributor  = { src_ip: string; dst_ip: string; site?: string; sampler_ip?: string; value: number }
-type TopSource    = { src_ip: string; dst_ip?: string; protocol?: string; sampler_ip?: string; flow_count?: number; value?: number }
-type TopFlow      = { src_ip: string; dst_ip: string; bytes: number; protocol: string }
-type TopDst       = { dst_ip: string; flow_count: number; bytes: number }
-type SamplePort   = { dst_port: number; protocol: string; flow_count: number }
+type TopSource = { source_ip: string; count: number }
 
 function MiniTable({ title, headers, rows }: {
   title: string
@@ -410,46 +273,21 @@ function MiniTable({ title, headers, rows }: {
 }
 
 function DetailsPanel({ details }: { details: DetailMap }) {
-  const contributors   = details.top_contributors as Contributor[]  | undefined
-  const topSources     = details.top_sources      as TopSource[]    | undefined
-  const topFlows       = details.top_flows        as TopFlow[]      | undefined
-  const topDsts        = details.top_destinations as TopDst[]       | undefined
-  const samplePorts    = details.sample_ports     as SamplePort[]   | undefined
+  const topSources = details.top_sources as TopSource[] | undefined
 
-  const TABLE_KEYS = new Set(['top_contributors','top_sources','top_flows','top_destinations','sample_ports'])
-  const CHIP_IP_KEYS  = ['src_ip','sampler_ip']
-  const CHIP_SITE_KEYS = ['site_a','site_b']
-  const META_SKIP = new Set([...CHIP_IP_KEYS, ...CHIP_SITE_KEYS, ...TABLE_KEYS])
+  const TABLE_KEYS = new Set(['top_sources'])
+  const CHIP_IP_KEYS = ['src_ip', 'sampler_ip']
+  const META_SKIP = new Set([...CHIP_IP_KEYS, ...TABLE_KEYS])
 
-  const chips: [string,string,string][] = []
+  const chips: [string, string, string][] = []
   CHIP_IP_KEYS.forEach(k => {
     const v = details[k] as string | undefined
-    if (v && v !== 'all') chips.push([k, k === 'src_ip' ? 'Source IP' : 'Sampler', v])
-  })
-  CHIP_SITE_KEYS.forEach(k => {
-    const v = details[k] as string | undefined
-    if (v && v !== 'any') chips.push([k, k === 'site_a' ? 'Site A' : 'Site B', v])
+    if (v && v !== 'all') chips.push([k, k === 'src_ip' ? 'Source IP' : 'Collector', v])
   })
 
   const kvs = Object.entries(details).filter(([k]) => !META_SKIP.has(k))
 
-  // Build top_sources table rows — handles both {src_ip, value} and {src_ip, dst_ip, protocol, sampler_ip, flow_count}
-  const topSourceHasExtra = topSources && topSources[0] && ('dst_ip' in topSources[0] || 'protocol' in topSources[0])
-  const topSourceHeaders = topSourceHasExtra
-    ? ['Source', 'Destination', 'Proto', 'Sampler', 'Flows']
-    : ['Source IP', 'Volume']
-  const topSourceRows = (topSources || []).map(s =>
-    topSourceHasExtra
-      ? [s.src_ip, s.dst_ip ?? '—', s.protocol ?? '—', s.sampler_ip ?? '—', s.flow_count ?? 0]
-      : [s.src_ip, s.value ?? 0]
-  )
-
-  // Build contributors table rows (inter-site)
-  const contribHasSampler = contributors && contributors[0]?.sampler_ip !== undefined
-  const contribHeaders = ['Source', 'Destination', 'Site', ...(contribHasSampler ? ['Sampler'] : []), 'Volume']
-  const contribRows = (contributors || []).map(c => [
-    c.src_ip, c.dst_ip, c.site ?? '—', ...(contribHasSampler ? [c.sampler_ip ?? '—'] : []), c.value
-  ])
+  const topSourceRows = (topSources || []).map(s => [s.source_ip, s.count])
 
   return (
     <div className="mt-3 space-y-3">
@@ -476,42 +314,27 @@ function DetailsPanel({ details }: { details: DetailMap }) {
         </div>
       )}
 
-      {/* Top contributors (inter-site) */}
-      <MiniTable title="Top contributors" headers={contribHeaders} rows={contribRows} />
-
-      {/* Top sources (threshold / rate_spike / port_protocol / protocol_anomaly) */}
-      <MiniTable title="Top sources" headers={topSourceHeaders} rows={topSourceRows} />
-
-      {/* Largest flows (elephant flow) */}
-      <MiniTable
-        title="Largest flows"
-        headers={['Source', 'Destination', 'Proto', 'Bytes']}
-        rows={(topFlows || []).map(f => [f.src_ip, f.dst_ip, f.protocol, fmtBytes(f.bytes)])}
-      />
-
-      {/* Top destinations (connection burst) */}
-      <MiniTable
-        title="Top destinations"
-        headers={['Destination IP', 'Flows', 'Bytes']}
-        rows={(topDsts || []).map(d => [d.dst_ip, d.flow_count, fmtBytes(d.bytes)])}
-      />
-
-      {/* Sample ports (port scan) */}
-      <MiniTable
-        title="Ports scanned (sample)"
-        headers={['Dst Port', 'Proto', 'Flows']}
-        rows={(samplePorts || []).map(p => [String(p.dst_port), p.protocol, p.flow_count])}
-      />
+      {/* Top sources (threshold / rate_spike) */}
+      <MiniTable title="Top sources" headers={['Source IP', 'Events']} rows={topSourceRows} />
     </div>
   )
 }
 
 // ── Alert event card ──────────────────────────────────────────────────────────
-function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) => void }) {
+function EventCard({ event, onAck, timezone }: { event: AlertEvent; onAck: (id: number) => void; timezone: string }) {
   const [expanded, setExpanded] = useState(false)
   const isAcked     = Boolean(event.acked_at)
   const isResolved  = Boolean(event.resolved_at) && !isAcked
   const hasDetails  = Object.keys(event.details).length > 0
+
+  // "Unknown collector <ip> sent syslog data — not in collector registry"
+  // (see app/alerts/engine.py _check_unknown_samplers) — offer a direct
+  // link to register it, pre-filled with just the IP. The user still fills
+  // in and saves the rest themselves.
+  const unknownIp = event.message.startsWith('Unknown collector ')
+    && typeof event.details.sampler_ip === 'string'
+    ? event.details.sampler_ip as string
+    : null
 
   return (
     <div className={`bg-gray-900 border rounded-xl p-4 transition-opacity ${
@@ -531,12 +354,20 @@ function EventCard({ event, onAck }: { event: AlertEvent; onAck: (id: number) =>
             <p className="text-sm font-medium text-white truncate">{event.rule_name}</p>
             <p className="text-sm text-white mt-0.5">{event.message}</p>
             {isResolved && (
-              <p className="text-xs text-green-500/70 mt-0.5">Resolved {fmtTime(event.resolved_at!)}</p>
+              <p className="text-xs text-green-500/70 mt-0.5">Resolved {fmtTime(event.resolved_at!, timezone)}</p>
+            )}
+            {unknownIp && (
+              <Link
+                to={`/settings?tab=devices&register_ip=${encodeURIComponent(unknownIp)}`}
+                className="inline-block mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Register collector {unknownIp} →
+              </Link>
             )}
           </div>
         </div>
         <div className="shrink-0 flex items-center gap-2">
-          <span className="text-xs text-white">{fmtTime(event.fired_at)}</span>
+          <span className="text-xs text-white">{fmtTime(event.fired_at, timezone)}</span>
           {!isAcked && (
             <button
               onClick={() => onAck(event.id)}
@@ -810,6 +641,7 @@ function RuleForm({
 type Tab = 'active' | 'history' | 'rules'
 
 export default function Alerts() {
+  const timezone = useTimezone()
   const [tab, setTab]               = useState<Tab>('active')
   const [events, setEvents]         = useState<AlertEvent[]>([])
   const [history, setHistory]       = useState<AlertEvent[]>([])
@@ -1039,7 +871,7 @@ export default function Alerts() {
               <p className="text-sm">No unacknowledged alerts</p>
             </div>
           )}
-          {events.map(e => <EventCard key={e.id} event={e} onAck={handleAck} />)}
+          {events.map(e => <EventCard key={e.id} event={e} onAck={handleAck} timezone={timezone} />)}
         </div>
       )}
 
@@ -1051,7 +883,7 @@ export default function Alerts() {
               <p className="text-sm">No alert history</p>
             </div>
           )}
-          {history.map(e => <EventCard key={e.id} event={e} onAck={handleAck} />)}
+          {history.map(e => <EventCard key={e.id} event={e} onAck={handleAck} timezone={timezone} />)}
         </div>
       )}
 

@@ -39,6 +39,17 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+def _user_to_dict(row: aiosqlite.Row) -> dict:
+    d = dict(row)
+    # created_at/last_login come from SQLite's datetime('now'), which is UTC
+    # but has no timezone marker — browsers parse that as local time, not
+    # UTC. Normalize to a proper UTC ISO string.
+    for col in ("created_at", "last_login"):
+        if d.get(col):
+            d[col] = d[col].replace(" ", "T") + "Z"
+    return d
+
+
 class PasswordReset(BaseModel):
     new_password: str
 
@@ -84,7 +95,7 @@ async def list_users(_: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
         "SELECT id, username, email, role, is_active, created_at, last_login FROM users ORDER BY username"
     ) as cur:
         rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    return [_user_to_dict(r) for r in rows]
 
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -97,7 +108,7 @@ async def create_user(body: UserIn, _: AdminUser, db: aiosqlite.Connection = Dep
         ) as cur:
             row = await cur.fetchone()
         await db.commit()
-        return dict(row)
+        return _user_to_dict(row)
     except aiosqlite.IntegrityError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
@@ -126,7 +137,7 @@ async def update_user(
         row = await cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
-    return dict(row)
+    return _user_to_dict(row)
 
 
 @router.patch("/{user_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
