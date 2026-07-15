@@ -7,7 +7,7 @@ Flush triggers (whichever comes first):
 
 On ClickHouse failure:
   - Retries up to 3 times with 2s backoff
-  - Overflows to file journal at /mnt/software/pktlog/ingest_journal/
+  - Overflows to file journal at the configured journal_dir
   - Journal replayed automatically once ClickHouse recovers
   - Journal drops oldest files when total size exceeds configured cap (default 5 GB)
 """
@@ -30,8 +30,12 @@ _BATCH_SIZE    = 500
 _FLUSH_INTERVAL = 2.0        # seconds
 _MAX_RETRIES   = 3
 _RETRY_DELAY   = 2.0         # seconds
-_JOURNAL_DIR   = Path("/mnt/software/pktlog/ingest_journal")
 _DEFAULT_MAX_JOURNAL_BYTES = 5 * 1024 ** 3   # 5 GB
+
+
+def _journal_dir() -> Path:
+    from app.config import get_settings
+    return Path(get_settings().journal_dir)
 
 
 def _get_max_journal_bytes() -> int:
@@ -62,7 +66,7 @@ class BatchWriter:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        _JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
+        _journal_dir().mkdir(parents=True, exist_ok=True)
         self._running = True
         self._task = asyncio.create_task(self._loop(), name="ingest-writer")
         log.info("BatchWriter started (batch=%d flush=%.1fs)", _BATCH_SIZE, _FLUSH_INTERVAL)
@@ -146,7 +150,7 @@ class BatchWriter:
 
     async def _write_journal(self, batch: list[SyslogRecord]) -> None:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-        path = _JOURNAL_DIR / f"{ts}.jsonl"
+        path = _journal_dir() / f"{ts}.jsonl"
         try:
             lines = []
             for r in batch:
@@ -164,7 +168,7 @@ class BatchWriter:
         """Drop oldest journal files if total size exceeds cap."""
         try:
             cap = _get_max_journal_bytes()
-            files = sorted(_JOURNAL_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+            files = sorted(_journal_dir().glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
             total = sum(p.stat().st_size for p in files)
             while total > cap and files:
                 oldest = files.pop(0)
@@ -177,7 +181,7 @@ class BatchWriter:
 
     async def _replay_journal(self) -> None:
         """On startup, replay any journal files left from a previous outage."""
-        files = sorted(_JOURNAL_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+        files = sorted(_journal_dir().glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
         if not files:
             return
         log.info("Replaying %d journal file(s) from previous outage", len(files))

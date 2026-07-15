@@ -1,8 +1,8 @@
 #!/bin/bash
 # pktLog start wrapper — conditionally enables SSL
 #
-# Not used by pktlog.service (which invokes uvicorn directly); this is for
-# running pktlog manually outside systemd, e.g. for local development.
+# This is what pktlog.service's ExecStart actually runs. It also works fine
+# invoked manually outside systemd, e.g. for local development.
 #
 # Auto-detects $PKTLOG_INSTALL_DIR/ssl/server.crt + server.key on startup.
 # To enable HTTPS: upload cert/key via Settings → Integrations → SSL / TLS, then restart.
@@ -14,6 +14,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${PKTLOG_INSTALL_DIR:-/opt/pktlog}"
+export PKTLOG_INSTALL_DIR="$INSTALL_DIR"
 PORT="${PKTLOG_PORT:-8768}"
 WORKERS="${PKTLOG_WORKERS:-2}"
 

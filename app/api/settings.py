@@ -5,12 +5,14 @@ All settings are stored as JSON values in the SQLite settings table.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import AdminUser, CurrentUser
 
@@ -90,7 +92,7 @@ DEFAULTS: dict[str, Any] = {
     "backup_enabled": False,
     "backup_interval_hours": 24,
     "backup_rotation_count": 5,
-    "backup_path": "/mnt/software/pktlog_backups",
+    "backup_path": str(Path(get_settings().install_dir) / "backups"),
     "backup_include_clickhouse": True,
 }
 
