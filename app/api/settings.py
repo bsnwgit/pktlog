@@ -86,6 +86,7 @@ DEFAULTS: dict[str, Any] = {
     "alert_event_retention_days": 90, # Days to keep alert_events + notification_log rows
 
     # Ingest
+    "syslog_port": get_settings().syslog_port,  # UDP+TCP port; config.yaml value seeds the first-run default
     "journal_max_gb": 5,            # Max disk for ingest file journal (GB)
 
     # Backup

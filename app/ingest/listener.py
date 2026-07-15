@@ -26,11 +26,22 @@ log = logging.getLogger("pktlog.ingest.listener")
 _MAX_SIZE = 65536   # 64 KB UDP datagram cap
 
 
-def _get_port() -> int:
+async def _get_port() -> int:
+    """Syslog port — SQLite settings value wins if present (Settings UI →
+    Ingest tab), otherwise falls back to config.yaml/env (app/config.py)."""
+    port = get_settings().syslog_port
     try:
-        return get_settings().syslog_port
+        import aiosqlite, json
+        async with aiosqlite.connect(get_settings().db_path) as db:
+            async with db.execute(
+                "SELECT value FROM settings WHERE key = 'syslog_port'"
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    port = int(json.loads(row[0]))
     except Exception:
-        return 8761
+        pass
+    return port
 
 
 # ── UDP protocol ──────────────────────────────────────────────────────────────
@@ -113,7 +124,7 @@ class SyslogListener:
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
-        port = _get_port()
+        port = await _get_port()
 
         # With multiple uvicorn workers, only one process can own the port.
         # The others skip binding gracefully — the writer still starts so
