@@ -242,6 +242,123 @@ class ClickHouseBackend(StorageBackend):
         rows = await asyncio.to_thread(self._execute, q)
         return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat()} for r in rows]
 
+    # ── Alert-engine metrics ─────────────────────────────────────────────────
+
+    def _metric_where(
+        self,
+        window_min: int,
+        collector_ip: Optional[str],
+        severity_max: Optional[int],
+        program: Optional[str],
+    ) -> tuple[list[str], dict]:
+        where = ["timestamp >= now() - INTERVAL %(window)s MINUTE"]
+        params: dict = {"window": window_min}
+        if collector_ip:
+            where.append("collector_ip = %(collector_ip)s")
+            params["collector_ip"] = collector_ip
+        if severity_max is not None:
+            where.append("severity <= %(severity_max)s")
+            params["severity_max"] = severity_max
+        if program:
+            where.append("program = %(program)s")
+            params["program"] = program
+        return where, params
+
+    async def count_events_in_window(
+        self,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        program: Optional[str] = None,
+    ) -> int:
+        where, params = self._metric_where(window_min, collector_ip, severity_max, program)
+        q = f"SELECT count() FROM syslog_events WHERE {' AND '.join(where)}"
+        rows = await asyncio.to_thread(self._execute, q, params)
+        return int(rows[0][0]) if rows else 0
+
+    async def count_events_baseline(
+        self,
+        baseline_days: int,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        program: Optional[str] = None,
+    ) -> float:
+        """Average event count per window_min-sized bucket over the past
+        baseline_days days (excluding the current window itself)."""
+        where = [
+            "timestamp >= now() - INTERVAL %(baseline_days)s DAY",
+            "timestamp < now() - INTERVAL %(window)s MINUTE",
+        ]
+        params: dict = {"baseline_days": baseline_days, "window": window_min}
+        if collector_ip:
+            where.append("collector_ip = %(collector_ip)s")
+            params["collector_ip"] = collector_ip
+        if severity_max is not None:
+            where.append("severity <= %(severity_max)s")
+            params["severity_max"] = severity_max
+        if program:
+            where.append("program = %(program)s")
+            params["program"] = program
+
+        q = f"""
+            SELECT avg(bucket_count) FROM (
+                SELECT toStartOfInterval(timestamp, INTERVAL %(window)s MINUTE) AS bucket,
+                       count() AS bucket_count
+                FROM syslog_events
+                WHERE {' AND '.join(where)}
+                GROUP BY bucket
+            )
+        """
+        rows = await asyncio.to_thread(self._execute, q, params)
+        val = rows[0][0] if rows and rows[0][0] is not None else 0.0
+        return float(val)
+
+    async def top_sources_in_window(
+        self,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+        program: Optional[str] = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        where, params = self._metric_where(window_min, collector_ip, severity_max, program)
+        params["limit"] = limit
+        q = f"""
+            SELECT source_ip, count() AS cnt
+            FROM syslog_events
+            WHERE {' AND '.join(where)}
+            GROUP BY source_ip
+            ORDER BY cnt DESC
+            LIMIT %(limit)s
+        """
+        rows = await asyncio.to_thread(self._execute, q, params)
+        return [{"source_ip": r[0], "count": r[1]} for r in rows]
+
+    async def top_talker_in_window(
+        self,
+        window_min: int,
+        collector_ip: Optional[str] = None,
+        severity_max: Optional[int] = None,
+    ) -> tuple[Optional[str], int]:
+        top = await self.top_sources_in_window(
+            window_min, collector_ip=collector_ip, severity_max=severity_max, limit=1
+        )
+        if not top:
+            return None, 0
+        return top[0]["source_ip"], top[0]["count"]
+
+    async def table_size_gb(self, table: str) -> float:
+        q = """
+            SELECT sum(bytes_on_disk) FROM system.parts
+            WHERE database = %(db)s AND table = %(table)s AND active
+        """
+        rows = await asyncio.to_thread(
+            self._execute, q, {"db": settings.clickhouse_database, "table": table}
+        )
+        val = rows[0][0] if rows and rows[0][0] is not None else 0
+        return float(val) / (1024 ** 3)
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
