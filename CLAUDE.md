@@ -161,15 +161,14 @@ conn.commit()
 
 ## Current State
 
-- Backend: FastAPI, HTTPS on 8768, ClickHouse storage, syslog ingest live on 8761
+- Backend: FastAPI on 8768 (HTTP by default; HTTPS auto-enabled if `ssl/server.crt`+`server.key` are present), ClickHouse storage, syslog ingest live on **5514** (UDP+TCP)
 - Ingest: UDP+TCP listener → RFC 3164/5424 parser → normalizer (org/group/site enrichment) → ClickHouse batch writer with file journal fallback
-- Collectors: Collector-A (<COLLECTOR_A_HOST>) and Collector-B (<COLLECTOR_B_HOST>) syslog-ng forwarding to pkt server:8761 with disk-buffer
+- **Collector registry is a hard ingest gate, not just enrichment.** `app/ingest/normalizer.py`'s `enrich()` returns `None` (record dropped, never reaches the writer) for any `collector_ip` not present and `enabled=1` in `collector_registry`. A device can be sending syslog on the wire, but nothing persists until it's added under Settings → Collectors and marked enabled. Unregistered senders instead fire a `new_host`/"Unknown collector" alert with a one-click "Register collector →" link.
+- **RFC 3164 timestamps are interpreted in the app's configured device timezone, not assumed UTC.** RFC 3164 has no timezone marker; many real devices (UniFi APs/gateways observed in practice) log in local time. `_parse_ts_3164()` (app/ingest/parser.py) localizes the parsed naive datetime using the `timezone` setting (Settings → General — same value used for display) before converting to UTC for storage. Getting this wrong silently shifts every such event's `timestamp` column by the zone offset — `received_at` (always server-side `datetime.now(utc)`) is unaffected either way and is the reliable field to sanity-check against if timestamps ever look off again.
+- **Parser also handles headerless lines.** Some devices send RFC-3164-shaped lines with no `<PRI>` at all (e.g. UniFi CEF security events: `TIMESTAMP HOSTNAME CEF:0|...`), and some send no syslog header whatsoever (e.g. UniFi AP kernel/wireless-driver debug lines: `{tag} [uptime] ...`). Both are recognized and stripped down to a real `message` instead of falling through to "unparseable" (which previously left `message == raw` and dropped `source_ip`/`timestamp` entirely).
 - Storage: ClickHouse `pktlog.syslog_events` (17 columns), SQLite for app config/auth/alerts/collector_registry
-- Frontend: React app with Login, Dashboard (stub), Alerts, Settings, Users, Logs pages
+- Frontend: React app with Login, Dashboard, Alerts, Settings, Users, Logs, Syslog Explorer pages — all timestamp displays use the configured `timezone` setting via `frontend/src/hooks/useTimezone.ts`, not the browser's local zone
 
-**What still needs to be built (Phases 3–5):**
-- Syslog API endpoints (`/api/syslog/search`, `/api/syslog/stats`, `/api/syslog/timeseries`)
-- Dashboard with real analytics (replace stub)
-- Syslog Explorer page
-- Settings → Ingest tab (port config, retention, journal cap)
-- Syslog-specific alert rule types
+**Known gotcha — deployed systemd unit can silently drift from the repo template.** `pktlog.service` in the repo runs `ExecStart=__INSTALL_DIR__/start.sh` (so SSL auto-detect and any future `start.sh` changes take effect), but an *already-installed* `/etc/systemd/system/pktlog.service` on a live host is a separate file that only gets updated by re-running the relevant part of `install.sh` or reinstalling the unit — editing `start.sh` alone has zero effect if the installed unit bypasses it with a direct `uvicorn ...` `ExecStart`. If a "backend fix" doesn't seem to take effect after a restart, compare `systemctl cat pktlog | grep ExecStart` against the repo's `pktlog.service` before assuming the code is wrong.
+
+**Backlog:** none open as of this writing — the three items previously tracked here (collector-registry gating, cross-worker log capture level, Syslog Explorer full-field detail view) are all implemented; see git history (`d9f1e3f`, `deb95aa`) for details.

@@ -24,6 +24,8 @@ from app.api import syslog as syslog_router
 from app.api import collectors as collectors_router
 from app.api import suite as suite_router
 from app.api import widgets as widgets_router
+from app.api import alerts as alerts_router
+from app.api import ws as ws_router
 
 settings = get_settings()
 log = logging.getLogger("pktlog")
@@ -35,7 +37,7 @@ async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
     log.info("pktLog starting up")
 
-    # Attach SQLite log handler (captures WARNING+ by default)
+    # Attach SQLite log handler (captures INFO+ by default)
     from app.logging_handler import SQLiteLogHandler
     _log_handler = SQLiteLogHandler(db_path=settings.db_path)
     _log_handler.attach_to_root_logger("pktlog")
@@ -99,7 +101,6 @@ async def lifespan(app: FastAPI):
     from app.ingest.listener import get_listener
     listener = get_listener()
     await listener.start()
-    log.info("Syslog listener started on port 8761")
 
     yield
 
@@ -196,6 +197,8 @@ app.include_router(syslog_router.router,    prefix="/api/syslog",      tags=["sy
 app.include_router(collectors_router.router, prefix="/api/collectors", tags=["collectors"])
 app.include_router(suite_router.router, prefix="/api/suite", tags=["suite"])
 app.include_router(widgets_router.router,  prefix="/api",          tags=["widgets"])
+app.include_router(alerts_router.router,   prefix="/api/alerts",   tags=["alerts"])
+app.include_router(ws_router.router,       prefix="/api/ws",       tags=["websocket"])
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

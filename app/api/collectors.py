@@ -20,7 +20,7 @@ router = APIRouter()
 class CollectorIn(BaseModel):
     collector_ip:   str
     collector_name: str
-    org:            str = "<ORG_NAME>"
+    org:            str = ""
     log_group:      str = ""
     site:           str = ""
     notes:          str = ""

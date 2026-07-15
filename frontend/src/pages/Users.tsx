@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { api, User, UserIn } from '../api/client'
 import { useAuth } from '../store/auth'
+import { useTimezone } from '../hooks/useTimezone'
 
 const ROLES = ['admin', 'viewer', 'analyst']
 
@@ -161,6 +162,7 @@ function ResetPasswordModal({ user, onClose }: ResetPwProps) {
 
 export default function Users() {
   const { user: me } = useAuth()
+  const timezone = useTimezone()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'create' | User | null>(null)
@@ -253,7 +255,7 @@ export default function Users() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-white text-xs">
-                    {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+                    {u.last_login ? new Date(u.last_login).toLocaleString([], { timeZone: timezone }) : 'Never'}
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">
