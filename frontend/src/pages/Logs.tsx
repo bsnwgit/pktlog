@@ -34,6 +34,156 @@ const CHIP_ACTIVE: Record<Level, string> = {
   CRITICAL: 'bg-red-700/40 text-red-200 border-red-500',
 }
 
+// ── Time range ────────────────────────────────────────────────────────────────
+
+const TIME_RANGES = [
+  { value: '1h',     label: '1h' },
+  { value: '6h',     label: '6h' },
+  { value: '24h',    label: '24h' },
+  { value: '7d',     label: '7d' },
+  { value: '30d',    label: '30d' },
+  { value: 'all',    label: 'All time' },
+  { value: 'custom', label: 'Custom range…' },
+] as const
+type TimeRange = typeof TIME_RANGES[number]['value']
+
+const TIME_RANGE_MS: Record<Exclude<TimeRange, 'all' | 'custom'>, number> = {
+  '1h':  60 * 60 * 1000,
+  '6h':  6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d':  7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
+
+interface TimeWindow {
+  since?: string
+  until?: string
+}
+
+// datetime-local values are local wall-clock time with no timezone info, so
+// format from local (not UTC) date components — a plain toISOString() would
+// shift the displayed clock time by the browser's UTC offset. Note: this is
+// necessarily the browser's local timezone, not the app's configured display
+// timezone (useTimezone) — a plain HTML datetime-local input has no way to
+// pin itself to an arbitrary configured zone.
+function toLocalInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function todayStart(): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return toLocalInputValue(d)
+}
+function todayEnd(): string {
+  const d = new Date()
+  d.setHours(23, 59, 0, 0)
+  return toLocalInputValue(d)
+}
+/** Never allow a future moment — clamp back to right now instead. */
+function clampFuture(value: string): string {
+  if (!value) return value
+  const now = new Date()
+  return new Date(value).getTime() > now.getTime() ? toLocalInputValue(now) : value
+}
+
+/**
+ * Preset + custom date/time range picker. Owns its own preset/from/to UI state
+ * and reports the resolved {since, until} ISO bounds up to the parent — as logs
+ * grow, a preset alone won't always pinpoint the right window.
+ *
+ * Validation: neither side can be in the future (clamped back to now — both via
+ * the inputs' own `max` and as a typed-input backstop), and "to" must be after
+ * "from" (same-day-with-earlier-end-time counts as invalid too, since it's a
+ * plain datetime comparison, not just a date comparison) — an invalid range
+ * shows an inline error and does not get applied, leaving the last valid window.
+ */
+function TimeRangeControl({ onChange }: { onChange: (window: TimeWindow) => void }) {
+  const [preset, setPreset]         = useState<TimeRange>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo]     = useState('')
+  const [rangeError, setRangeError] = useState('')
+
+  const emit = (p: TimeRange, from: string, to: string) => {
+    if (p === 'custom') {
+      onChange({
+        since: from ? new Date(from).toISOString() : undefined,
+        until: to ? new Date(to).toISOString() : undefined,
+      })
+    } else if (p === 'all') {
+      onChange({})
+    } else {
+      onChange({ since: new Date(Date.now() - TIME_RANGE_MS[p]).toISOString() })
+    }
+  }
+
+  const applyCustom = (from: string, to: string) => {
+    if (from && to && new Date(to).getTime() < new Date(from).getTime()) {
+      setRangeError('End date/time must be after the start date/time.')
+      return
+    }
+    setRangeError('')
+    emit('custom', from, to)
+  }
+
+  const nowLocal = toLocalInputValue(new Date())
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        value={preset}
+        onChange={e => {
+          const p = e.target.value as TimeRange
+          setPreset(p)
+          setRangeError('')
+          if (p === 'custom') {
+            // Default to today's full day (12:00 AM – 11:59 PM), clamped to
+            // "now" since the end can't be in the future.
+            const from = customFrom || todayStart()
+            const to   = clampFuture(customTo || todayEnd())
+            setCustomFrom(from)
+            setCustomTo(to)
+            applyCustom(from, to)
+          } else {
+            emit(p, customFrom, customTo)
+          }
+        }}
+        className="text-xs bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-blue-500"
+      >
+        {TIME_RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+      </select>
+      {preset === 'custom' && (
+        <>
+          <input
+            type="datetime-local"
+            value={customFrom}
+            max={nowLocal}
+            onChange={e => {
+              const v = clampFuture(e.target.value)
+              setCustomFrom(v)
+              applyCustom(v, customTo)
+            }}
+            className="text-xs bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
+          />
+          <span className="text-xs text-gray-500">to</span>
+          <input
+            type="datetime-local"
+            value={customTo}
+            max={nowLocal}
+            onChange={e => {
+              const v = clampFuture(e.target.value)
+              setCustomTo(v)
+              applyCustom(customFrom, v)
+            }}
+            className="text-xs bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
+          />
+          {rangeError && <span className="text-xs text-red-400">{rangeError}</span>}
+        </>
+      )}
+    </div>
+  )
+}
+
 function fmtTs(ts: string, timeZone: string): string {
   const d = new Date(ts)
   // Include milliseconds manually since fractionalSecondDigits has limited TS support
@@ -65,6 +215,7 @@ export default function Logs() {
   const [level, setLevel]         = useState<Level>('ALL')
   const [logger, setLogger]       = useState('')
   const [search, setSearch]       = useState('')
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>({})
   const [liveLevel, setLiveLevel] = useState('WARNING')
 
   const [autoRefresh, setAutoRefresh] = useState(false)
@@ -87,6 +238,8 @@ export default function Logs() {
       if (level !== 'ALL') params.level = level
       if (logger)          params.logger = logger
       if (search)          params.search = search
+      if (timeWindow.since) params.since = timeWindow.since
+      if (timeWindow.until) params.until = timeWindow.until
 
       const [res, s] = await Promise.all([
         api.getLogs(params),
@@ -100,7 +253,7 @@ export default function Logs() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [level, logger, search])
+  }, [level, logger, search, timeWindow])
 
   useEffect(() => {
     fetchLogs()
@@ -251,6 +404,9 @@ export default function Logs() {
           onKeyDown={e => e.key === 'Enter' && fetchLogs()}
           className="text-xs bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-1 w-52 focus:outline-none focus:border-blue-500"
         />
+
+        {/* Time range */}
+        <TimeRangeControl onChange={setTimeWindow} />
 
         {/* Live capture level (admin) */}
         {isAdmin && (
