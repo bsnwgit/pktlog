@@ -118,6 +118,31 @@ export const api = {
     request<Collector>(`/collectors/${encodeURIComponent(ip)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteCollector: (ip: string) =>
     request(`/collectors/${encodeURIComponent(ip)}`, { method: 'DELETE' }),
+  exportCollectors: async (): Promise<void> => {
+    const headers: Record<string, string> = {}
+    if (_accessToken) headers['Authorization'] = `Bearer ${_accessToken}`
+    const res = await fetch('/api/collectors/export', { headers })
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'pktlog-collectors.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+  importCollectors: async (file: File): Promise<{ created: number; skipped: number; errors: string[] }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const headers: Record<string, string> = {}
+    if (_accessToken) headers['Authorization'] = `Bearer ${_accessToken}`
+    const res = await fetch('/api/collectors/import-csv', { method: 'POST', headers, body: formData })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || res.statusText)
+    }
+    return res.json()
+  },
 
   // ── Alerts ────────────────────────────────────────────────────────────────
   getAlertRules: () => request<AlertRule[]>('/alerts/rules'),
@@ -467,6 +492,7 @@ export type LogQueryParams = {
   logger?: string
   search?: string
   since?: string
+  until?: string
   limit?: string
   offset?: string
 }

@@ -255,7 +255,12 @@ export default function Users() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-white text-xs">
-                    {u.last_login ? new Date(u.last_login).toLocaleString([], { timeZone: timezone }) : 'Never'}
+                    {u.last_login
+                      // last_login is naive UTC (SQLite datetime('now'), no 'Z') —
+                      // normalize before parsing so it isn't misread as local time.
+                      ? new Date(u.last_login.includes('T') || u.last_login.endsWith('Z') ? u.last_login : u.last_login.replace(' ', 'T') + 'Z')
+                          .toLocaleString([], { timeZone: timezone })
+                      : 'Never'}
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">
