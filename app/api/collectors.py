@@ -7,7 +7,7 @@ the org/log_group/site hierarchy used for enrichment at ingest time.
 from __future__ import annotations
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 from typing import Optional
 
@@ -47,6 +47,99 @@ async def list_collectors(_: CurrentUser, db: aiosqlite.Connection = Depends(get
     ) as cur:
         rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+@router.get("/export")
+async def export_collectors(_: CurrentUser, db: aiosqlite.Connection = Depends(get_db)):
+    """Export the collector registry as a CSV file download."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    async with db.execute(
+        """SELECT collector_ip, collector_name, org, log_group, site, notes, enabled
+           FROM collector_registry ORDER BY collector_ip"""
+    ) as cur:
+        rows = await cur.fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["collector_ip", "collector_name", "org", "log_group", "site", "notes", "enabled"])
+    for r in rows:
+        writer.writerow([
+            r["collector_ip"], r["collector_name"],
+            r["org"] or "", r["log_group"] or "", r["site"] or "", r["notes"] or "",
+            "true" if r["enabled"] else "false",
+        ])
+    buf.seek(0)
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="pktlog-collectors.csv"'},
+    )
+
+
+@router.post("/import-csv")
+async def import_collectors_csv(
+    file: UploadFile,
+    _: AdminUser,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    """Import collector registry entries from a multipart CSV upload.
+
+    CSV columns (header row required):
+      collector_ip, collector_name, org, log_group, site, notes, enabled
+
+    Rows are inserted; duplicate collector_ip values are skipped (not updated) —
+    use the Edit action for an existing entry instead.
+    """
+    import csv, io
+
+    raw = await file.read()
+    text = raw.decode("utf-8-sig")  # strip BOM (Excel exports)
+
+    reader = csv.DictReader(io.StringIO(text))
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for lineno, row in enumerate(reader, start=2):
+        collector_ip = (row.get("collector_ip") or "").strip()
+        collector_name = (row.get("collector_name") or "").strip()
+        if not collector_ip or not collector_name:
+            errors.append(f"Row {lineno}: missing collector_ip or collector_name — skipped")
+            skipped += 1
+            continue
+
+        enabled_str = (row.get("enabled") or "true").strip().lower()
+        enabled = 0 if enabled_str in ("false", "0", "no") else 1
+
+        try:
+            async with db.execute(
+                """INSERT OR IGNORE INTO collector_registry
+                    (collector_ip, collector_name, org, log_group, site, notes, enabled)
+                   VALUES (?,?,?,?,?,?,?) RETURNING id""",
+                (
+                    collector_ip, collector_name,
+                    (row.get("org") or "").strip(),
+                    (row.get("log_group") or "").strip(),
+                    (row.get("site") or "").strip(),
+                    (row.get("notes") or "").strip(),
+                    enabled,
+                ),
+            ) as cur:
+                result_row = await cur.fetchone()
+            if result_row:
+                created += 1
+            else:
+                skipped += 1
+                errors.append(f"Row {lineno}: {collector_ip} already exists — skipped")
+        except Exception as exc:
+            errors.append(f"Row {lineno}: {collector_ip}: {exc}")
+            skipped += 1
+
+    await db.commit()
+    return {"created": created, "skipped": skipped, "errors": errors}
 
 
 @router.post("/", status_code=201)

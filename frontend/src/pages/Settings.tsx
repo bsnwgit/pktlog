@@ -1453,6 +1453,9 @@ function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
   const [adding, setAdding]         = useState(false)
   const [saving, setSaving]         = useState(false)
   const [error, setError]           = useState('')
+  const [exporting, setExporting]   = useState(false)
+  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null)
+  const importFileRef = useRef<HTMLInputElement>(null)
 
   const EMPTY: Partial<CollectorIn> = {
     collector_ip: '', collector_name: '', org: '', log_group: '', site: '', notes: '',
@@ -1507,6 +1510,38 @@ function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
     try { await api.deleteCollector(ip); await load() } catch {}
   }
 
+  const handleDownloadTemplate = () => {
+    const rows = [
+      ['collector_ip', 'collector_name', 'org', 'log_group', 'site', 'notes', 'enabled'],
+      ['10.0.1.5', 'collector-branch-a', 'YourOrg', 'Branch-A', 'Site1', '', 'true'],
+      ['10.0.2.5', 'collector-branch-b', 'YourOrg', 'Branch-B', 'Site1', '', 'true'],
+    ]
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'pktlog-collectors-template.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExport = async () => {
+    setExporting(true)
+    try { await api.exportCollectors() }
+    catch (e: any) { setError(e.message) }
+    finally { setExporting(false) }
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const result = await api.importCollectors(file)
+      setImportResult(result)
+      if (result.created > 0) await load()
+    } catch (e: any) { setError(e.message) }
+  }
+
   const InputCls = 'w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500'
 
   return (
@@ -1517,12 +1552,30 @@ function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
           but nothing is stored unless its IP is listed here and marked Enabled. Also maps collector
           IPs to names and the org/group/site hierarchy used for log enrichment.
         </p>
-        {!adding && (
-          <button onClick={() => { setAdding(true); setEditing(null); setError('') }}
-            className="bg-blue-600 hover:bg-blue-500 text-white text-xs rounded-lg px-4 py-2 transition-colors">
-            + Add collector
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={handleExport} disabled={exporting}
+            className="px-3 py-2 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50">
+            {exporting ? 'Exporting…' : '↓ Export CSV'}
           </button>
-        )}
+          <div className="flex items-center gap-1">
+            <button onClick={() => importFileRef.current?.click()}
+              className="px-3 py-2 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors rounded-r-none border-r border-gray-600">
+              ↑ Import CSV
+            </button>
+            <button onClick={handleDownloadTemplate} title="Download CSV template"
+              className="px-2 py-2 text-xs bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white rounded-lg transition-colors rounded-l-none"
+              aria-label="Download template">
+              template
+            </button>
+          </div>
+          <input ref={importFileRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
+          {!adding && (
+            <button onClick={() => { setAdding(true); setEditing(null); setError('') }}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-xs rounded-lg px-4 py-2 transition-colors">
+              + Add collector
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
@@ -1652,6 +1705,39 @@ function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
           </tbody>
         </table>
       </div>
+
+      {importResult && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 py-8 px-4" onClick={() => setImportResult(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-white mb-3">Import complete</h3>
+            <div className="space-y-1 mb-4">
+              <p className="text-sm text-green-400">✓ {importResult.created} collector{importResult.created !== 1 ? 's' : ''} created</p>
+              {importResult.skipped > 0 && (
+                <p className="text-sm text-yellow-400">⚠ {importResult.skipped} row{importResult.skipped !== 1 ? 's' : ''} skipped</p>
+              )}
+            </div>
+            {importResult.errors.length > 0 && (
+              <div className="bg-gray-800 rounded-lg px-3 py-2 max-h-36 overflow-y-auto mb-4">
+                {importResult.errors.map((e, i) => (
+                  <p key={i} className="text-xs text-red-400 font-mono">{e}</p>
+                ))}
+              </div>
+            )}
+            <div className="bg-gray-800/60 rounded-lg px-3 py-2 mb-4">
+              <p className="text-xs font-medium text-gray-400 mb-1">CSV columns (header row required)</p>
+              <p className="text-xs font-mono text-gray-500 break-all">collector_ip, collector_name, org, log_group, site, notes, enabled</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <button onClick={handleDownloadTemplate} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                ↓ Download template
+              </button>
+              <button onClick={() => setImportResult(null)} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1950,7 +2036,12 @@ function UsersTab() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-white text-xs">
-                    {u.last_login ? new Date(u.last_login).toLocaleString([], { timeZone: timezone }) : 'Never'}
+                    {u.last_login
+                      // last_login is naive UTC (SQLite datetime('now'), no 'Z') —
+                      // normalize before parsing so it isn't misread as local time.
+                      ? new Date(u.last_login.includes('T') || u.last_login.endsWith('Z') ? u.last_login : u.last_login.replace(' ', 'T') + 'Z')
+                          .toLocaleString([], { timeZone: timezone })
+                      : 'Never'}
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1">
