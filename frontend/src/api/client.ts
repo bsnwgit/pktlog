@@ -146,8 +146,12 @@ export const api = {
 
   // ── Alerts ────────────────────────────────────────────────────────────────
   getAlertRules: () => request<AlertRule[]>('/alerts/rules'),
-  getAlertEvents: (unackedOnly = false) =>
-    request<AlertEvent[]>(`/alerts/events?unacked_only=${unackedOnly}`),
+  getAlertEvents: (unackedOnly = false, since?: string, until?: string) => {
+    const p = new URLSearchParams({ unacked_only: String(unackedOnly) })
+    if (since) p.set('since', since)
+    if (until) p.set('until', until)
+    return request<AlertEvent[]>(`/alerts/events?${p.toString()}`)
+  },
   ackEvent: (id: number) => request(`/alerts/events/${id}/ack`, { method: 'POST' }),
   ackAllEvents: () => request('/alerts/events/ack-all', { method: 'POST' }),
 
@@ -367,6 +371,7 @@ export type SyslogSearchParams = {
   start?: string
   end?: string
   source_ip?: string
+  collector_ip?: string
   collector_name?: string
   org?: string
   log_group?: string
