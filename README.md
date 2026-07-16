@@ -97,6 +97,10 @@ Alert-event and user last-login timestamps (`alert_events.fired_at`, `users.last
 
 The Application Logs page (search + level filter) also has a time-range dropdown — 1h/6h/24h/7d/30d/All time, plus **Custom range…** with two date/time pickers (defaulting to today, 12:00 AM–11:59 PM). The custom range validates that the end is after the start (same-day-with-earlier-end-time counts as invalid too) and disallows future times on either side, showing an inline error instead of silently applying an impossible filter.
 
+### Alert rules bulk import/export
+
+Alerts → Rules has Export CSV / Import CSV / template-download buttons alongside "+ New rule", for provisioning many rules at once. Columns: `name, description, rule_type, conditions, time_window_min, severity, channels, cooldown_min, enabled` — `conditions` round-trips as a JSON object string (shape depends on `rule_type`), `channels` as a comma-separated column (e.g. `inapp,slack`).
+
 ---
 
 ## Requirements

@@ -12,7 +12,7 @@ import json
 from typing import Any
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.database import get_db
@@ -129,6 +129,125 @@ async def delete_rule(rule_id: int, _: AdminUser, db: aiosqlite.Connection = Dep
     await db.execute("DELETE FROM alert_events WHERE rule_id = ?", (rule_id,))
     await db.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
     await db.commit()
+
+
+@router.get("/rules/export")
+async def export_rules(_: CurrentUser, db: aiosqlite.Connection = Depends(get_db)):
+    """Export all alert rules as a CSV file download."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    async with db.execute(
+        """SELECT name, description, rule_type, conditions, time_window_min,
+                  severity, channels, cooldown_min, enabled
+           FROM alert_rules ORDER BY id"""
+    ) as cur:
+        rows = await cur.fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "name", "description", "rule_type", "conditions", "time_window_min",
+        "severity", "channels", "cooldown_min", "enabled",
+    ])
+    for r in rows:
+        try:
+            channels = ",".join(json.loads(r["channels"]) if r["channels"] else ["inapp"])
+        except Exception:
+            channels = "inapp"
+        writer.writerow([
+            r["name"], r["description"] or "", r["rule_type"],
+            r["conditions"] or "{}", r["time_window_min"],
+            r["severity"], channels, r["cooldown_min"],
+            "true" if r["enabled"] else "false",
+        ])
+    buf.seek(0)
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="pktlog-alert-rules.csv"'},
+    )
+
+
+@router.post("/rules/import-csv")
+async def import_rules_csv(
+    file: UploadFile,
+    user: AdminUser,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    """Import alert rules from a multipart CSV upload.
+
+    CSV columns (header row required):
+      name, description, rule_type, conditions, time_window_min, severity,
+      channels, cooldown_min, enabled
+
+    - conditions: a JSON object string, e.g. '{"collector_ip": "10.0.1.5"}' —
+      the exact shape depends on rule_type, same as what the UI builds.
+      Blank or invalid JSON is treated as {}.
+    - channels: comma-separated, e.g. "inapp,slack". Blank defaults to "inapp".
+    - Rows are always inserted as new rules (no de-dup by name).
+    """
+    import csv, io
+
+    raw = await file.read()
+    text = raw.decode("utf-8-sig")  # strip BOM (Excel exports)
+
+    reader = csv.DictReader(io.StringIO(text))
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for lineno, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        rule_type = (row.get("rule_type") or "").strip()
+        if not name or not rule_type:
+            errors.append(f"Row {lineno}: missing name or rule_type — skipped")
+            skipped += 1
+            continue
+
+        conditions_raw = (row.get("conditions") or "").strip()
+        try:
+            conditions = json.loads(conditions_raw) if conditions_raw else {}
+            if not isinstance(conditions, dict):
+                raise ValueError("conditions must be a JSON object")
+        except Exception as exc:
+            errors.append(f"Row {lineno}: {name}: invalid conditions JSON ({exc}) — skipped")
+            skipped += 1
+            continue
+
+        channels_raw = (row.get("channels") or "inapp").strip()
+        channels = [c.strip() for c in channels_raw.split(",") if c.strip()] or ["inapp"]
+
+        time_window_str = (row.get("time_window_min") or "5").strip()
+        time_window_min = int(time_window_str) if time_window_str.lstrip("-").isdigit() else 5
+
+        cooldown_str = (row.get("cooldown_min") or "30").strip()
+        cooldown_min = int(cooldown_str) if cooldown_str.lstrip("-").isdigit() else 30
+
+        enabled_str = (row.get("enabled") or "true").strip().lower()
+        enabled = enabled_str not in ("false", "0", "no")
+
+        try:
+            await db.execute(
+                """INSERT INTO alert_rules
+                    (name, description, enabled, rule_type, conditions, time_window_min,
+                     severity, channels, cooldown_min, created_by)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    name, (row.get("description") or "").strip(), int(enabled), rule_type,
+                    json.dumps(conditions), time_window_min,
+                    (row.get("severity") or "warning").strip(), json.dumps(channels),
+                    cooldown_min, user["id"],
+                ),
+            )
+            created += 1
+        except Exception as exc:
+            errors.append(f"Row {lineno}: {name}: {exc}")
+            skipped += 1
+
+    await db.commit()
+    return {"created": created, "skipped": skipped, "errors": errors}
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
