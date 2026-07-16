@@ -85,9 +85,21 @@ Syslog Collectors ──UDP/TCP:5514──► pktLog Ingest Listener
 
 A device can be actively sending syslog data on the wire, but **nothing is stored until its IP is added under Settings → Collectors and marked enabled.** Data from an unregistered or disabled `collector_ip` is dropped at ingest (`app/ingest/normalizer.py`), not just missing hierarchy metadata — this is intentional, so a stray/misconfigured device on the network can't silently fill up storage. An unregistered sender instead raises an "Unknown collector" alert with a one-click link to pre-fill its registration form.
 
+Settings → Collectors also has **Export CSV / Import CSV / template-download** buttons for provisioning many collectors at once instead of one at a time (columns: `collector_ip, collector_name, org, log_group, site, notes, enabled`). Duplicate IPs are skipped on import, not overwritten — use the existing Edit action for changes to an entry already in the registry.
+
 ### Timestamps and device timezone
 
 RFC 3164 syslog (`MMM DD HH:MM:SS`, no timezone marker) is interpreted using the app's configured **Timezone** setting (Settings → General) as the device's local clock, then converted to UTC for storage — not assumed to already be UTC. Many real devices (UniFi APs/gateways observed in practice) log in local time, and getting this wrong silently shifts every such event by the zone offset. The `received_at` column is always the server's own UTC receipt time regardless of this setting, and is the field to check first if stored `timestamp` values ever look wrong.
+
+Alert-event and user last-login timestamps (`alert_events.fired_at`, `users.last_login`) are stored as naive UTC and are explicitly normalized before being parsed for display, so they render correctly in the configured display timezone regardless of the browser's own system timezone.
+
+### Application Logs time-range filtering
+
+The Application Logs page (search + level filter) also has a time-range dropdown — 1h/6h/24h/7d/30d/All time, plus **Custom range…** with two date/time pickers (defaulting to today, 12:00 AM–11:59 PM). The custom range validates that the end is after the start (same-day-with-earlier-end-time counts as invalid too) and disallows future times on either side, showing an inline error instead of silently applying an impossible filter.
+
+### Alert rules bulk import/export
+
+Alerts → Rules has Export CSV / Import CSV / template-download buttons alongside "+ New rule", for provisioning many rules at once. Columns: `name, description, rule_type, conditions, time_window_min, severity, channels, cooldown_min, enabled` — `conditions` round-trips as a JSON object string (shape depends on `rule_type`), `channels` as a comma-separated column (e.g. `inapp,slack`).
 
 ---
 

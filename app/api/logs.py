@@ -34,6 +34,7 @@ async def get_logs(
     logger: Optional[str] = Query(None, description="Filter by logger name prefix, e.g. pktlog.ingest"),
     search: Optional[str] = Query(None, description="Substring search in message"),
     since: Optional[str] = Query(None, description="ISO-8601 timestamp — only return records after this"),
+    until: Optional[str] = Query(None, description="ISO-8601 timestamp — only return records at or before this"),
     limit: int = Query(200, ge=1, le=2000),
     offset: int = Query(0, ge=0),
 ) -> dict:
@@ -58,6 +59,10 @@ async def get_logs(
     if since:
         conditions.append("ts > ?")
         params.append(since)
+
+    if until:
+        conditions.append("ts <= ?")
+        params.append(until)
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
