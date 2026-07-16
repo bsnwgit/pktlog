@@ -7,7 +7,13 @@ import { useTimezone } from '../hooks/useTimezone'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtTime(ts: string, timeZone: string): string {
-  return new Date(ts).toLocaleString([], {
+  // fired_at/acked_at/resolved_at are stored as naive UTC (SQLite's
+  // datetime('now'), no 'Z'/offset) — without forcing UTC interpretation here,
+  // the browser parses it against its own system timezone (not the app's
+  // configured display timezone), then the `timeZone` option below re-renders
+  // that wrong instant, compounding the error rather than fixing it.
+  const utc = ts.includes('T') || ts.endsWith('Z') ? ts : ts.replace(' ', 'T') + 'Z'
+  return new Date(utc).toLocaleString([], {
     timeZone,
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
