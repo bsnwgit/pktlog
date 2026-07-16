@@ -314,6 +314,7 @@ class DuckDBBackend(StorageBackend):
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         source_ip: Optional[str] = None,
+        collector_ip: Optional[str] = None,
         collector_name: Optional[str] = None,
         org: Optional[str] = None,
         log_group: Optional[str] = None,
@@ -334,6 +335,8 @@ class DuckDBBackend(StorageBackend):
                 conditions.append("timestamp <= ?"); params.append(end)
             if source_ip:
                 conditions.append("source_ip = ?"); params.append(source_ip)
+            if collector_ip:
+                conditions.append("collector_ip = ?"); params.append(collector_ip)
             if collector_name:
                 conditions.append("collector_name = ?"); params.append(collector_name)
             if org:
