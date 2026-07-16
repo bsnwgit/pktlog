@@ -2,6 +2,7 @@
  * Syslog Explorer — filtered log search with pagination and row expansion.
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, SyslogRecord, SyslogSearchParams } from '../api/client'
 import { useTimezone } from '../hooks/useTimezone'
 
@@ -55,6 +56,57 @@ function fmtTs(iso: string, timeZone: string): string {
   })
 }
 
+/**
+ * Page-number bar: shows every page when there are 5 or fewer, otherwise
+ * pages 1-5, an ellipsis, then the last page — plus prev/next buttons.
+ */
+function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  if (totalPages <= 1) return null
+  // The visible block of 5 slides with the current page — e.g. Next from
+  // page 5 moves to page 6 and the block updates to show 6-10, not a fixed
+  // 1-5. Same in reverse for Prev.
+  const blockStart = Math.floor((page - 1) / 5) * 5 + 1
+  const blockEnd   = Math.min(blockStart + 4, totalPages)
+  const pages = Array.from({ length: blockEnd - blockStart + 1 }, (_, i) => blockStart + i)
+  const btn = (p: number) =>
+    `text-xs min-w-[1.75rem] px-2 py-1 rounded-lg border transition-colors ${
+      p === page
+        ? 'bg-blue-600/30 border-blue-500 text-blue-200'
+        : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'
+    }`
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        className="text-xs px-2.5 py-1 rounded-lg border border-gray-700 bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        ← Prev
+      </button>
+      {blockStart > 1 && (
+        <>
+          <button onClick={() => onChange(1)} className={btn(1)}>1</button>
+          <span className="px-1 text-gray-500 text-xs">..</span>
+        </>
+      )}
+      {pages.map(p => <button key={p} onClick={() => onChange(p)} className={btn(p)}>{p}</button>)}
+      {blockEnd < totalPages && (
+        <>
+          <span className="px-1 text-gray-500 text-xs">..</span>
+          <button onClick={() => onChange(totalPages)} className={btn(totalPages)}>{totalPages}</button>
+        </>
+      )}
+      <button
+        onClick={() => onChange(Math.min(totalPages, page + 1))}
+        disabled={page === totalPages}
+        className="text-xs px-2.5 py-1 rounded-lg border border-gray-700 bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        Next →
+      </button>
+    </div>
+  )
+}
+
 // ── Row expansion ─────────────────────────────────────────────────────────────
 
 // Every syslog_events column gets its own field here — no conditional
@@ -105,14 +157,33 @@ function ExpandedRow({ r, timezone }: { r: SyslogRecord; timezone: string }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SyslogExplorer() {
-  // Filter state
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Filter state — seeded from URL params when deep-linked from an alert's
+  // "Investigate" button (see Alerts.tsx buildInvestigateUrl).
   const [presetIdx, setPresetIdx] = useState(2)       // default: last 6h
-  const [severityMax, setSeverityMax] = useState('')
-  const [program, setProgram]   = useState('')
-  const [sourceIp, setSourceIp] = useState('')
-  const [collectorName, setCollectorName] = useState('')
-  const [q, setQ] = useState('')
-  const [qDraft, setQDraft] = useState('')
+  const [severityMax, setSeverityMax] = useState(() => searchParams.get('severity_max') ?? '')
+  const [program, setProgram]   = useState(() => searchParams.get('program') ?? '')
+  const [sourceIp, setSourceIp] = useState(() => searchParams.get('source_ip') ?? '')
+  const [collectorIp, setCollectorIp] = useState(() => searchParams.get('collector_ip') ?? '')
+  const [collectorName, setCollectorName] = useState(() => searchParams.get('collector_name') ?? '')
+  const [q, setQ] = useState(() => searchParams.get('q') ?? '')
+  const [qDraft, setQDraft] = useState(() => searchParams.get('q') ?? '')
+
+  // Absolute time window from a deep link — overrides the preset buttons
+  // until the user picks a preset themselves, since an alert's investigate
+  // link needs the exact window around when it fired, not a rounded preset.
+  const [absWindow, setAbsWindow] = useState<{ from?: string; to?: string } | null>(() => {
+    const from = searchParams.get('time_from')
+    const to   = searchParams.get('time_to')
+    return from ? { from, to: to ?? undefined } : null
+  })
+
+  // Clear the deep-link params from the URL once consumed so revisiting
+  // this page later doesn't keep reapplying a stale investigate window.
+  useEffect(() => {
+    if (searchParams.toString()) setSearchParams({}, { replace: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Results state
   const [records, setRecords]   = useState<SyslogRecord[]>([])
@@ -133,13 +204,15 @@ export default function SyslogExplorer() {
     setError('')
     try {
       const params: SyslogSearchParams = {
-        start: toISOStart(TIME_PRESETS[presetIdx].minutes),
+        start: absWindow?.from ?? toISOStart(TIME_PRESETS[presetIdx].minutes),
         limit: PAGE_SIZE,
         offset: off,
       }
+      if (absWindow?.to)  params.end = absWindow.to
       if (severityMax !== '') params.severity_max = Number(severityMax)
       if (program)        params.program = program
       if (sourceIp)       params.source_ip = sourceIp
+      if (collectorIp)    params.collector_ip = collectorIp
       if (collectorName)  params.collector_name = collectorName
       if (q)              params.q = q
 
@@ -153,7 +226,7 @@ export default function SyslogExplorer() {
     } finally {
       setLoading(false)
     }
-  }, [presetIdx, severityMax, program, sourceIp, collectorName, q])
+  }, [presetIdx, severityMax, program, sourceIp, collectorIp, collectorName, q, absWindow])
 
   // Run on mount and when filters change
   useEffect(() => { search(0) }, [search])
@@ -176,7 +249,7 @@ export default function SyslogExplorer() {
             {TIME_PRESETS.map((p, i) => (
               <button
                 key={p.label}
-                onClick={() => setPresetIdx(i)}
+                onClick={() => { setPresetIdx(i); setAbsWindow(null) }}
                 className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                   i === presetIdx ? 'bg-blue-600 text-white font-medium' : 'text-gray-400 hover:text-white'
                 }`}
@@ -238,6 +311,13 @@ export default function SyslogExplorer() {
           />
           <input
             type="text"
+            value={collectorIp}
+            onChange={e => setCollectorIp(e.target.value)}
+            placeholder="Collector IP…"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-36 font-mono"
+          />
+          <input
+            type="text"
             value={collectorName}
             onChange={e => setCollectorName(e.target.value)}
             placeholder="Collector…"
@@ -252,8 +332,8 @@ export default function SyslogExplorer() {
           />
           <button
             onClick={() => {
-              setSourceIp(''); setCollectorName(''); setProgram('')
-              setSeverityMax(''); setQDraft(''); setQ('')
+              setSourceIp(''); setCollectorIp(''); setCollectorName(''); setProgram('')
+              setSeverityMax(''); setQDraft(''); setQ(''); setAbsWindow(null)
             }}
             className="text-xs text-gray-500 hover:text-white transition-colors ml-auto"
           >
@@ -263,30 +343,12 @@ export default function SyslogExplorer() {
       </div>
 
       {/* Results header */}
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-gray-500 flex-wrap gap-2">
         <span>
           {loading ? 'Searching…' : `${total.toLocaleString()} result${total !== 1 ? 's' : ''}`}
           {total > 0 && ` · showing ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)}`}
         </span>
-        {totalPages > 1 && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => search(offset - PAGE_SIZE)}
-              disabled={offset === 0}
-              className="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg disabled:opacity-40 hover:bg-gray-700 transition-colors"
-            >
-              ← Prev
-            </button>
-            <span className="text-gray-400">{currentPage} / {totalPages}</span>
-            <button
-              onClick={() => search(offset + PAGE_SIZE)}
-              disabled={offset + PAGE_SIZE >= total}
-              className="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg disabled:opacity-40 hover:bg-gray-700 transition-colors"
-            >
-              Next →
-            </button>
-          </div>
-        )}
+        <Pagination page={currentPage} totalPages={totalPages} onChange={p => search((p - 1) * PAGE_SIZE)} />
       </div>
 
       {/* Error */}
@@ -362,26 +424,6 @@ export default function SyslogExplorer() {
           </table>
         )}
       </div>
-
-      {/* Bottom pagination */}
-      {totalPages > 1 && (
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={() => search(offset - PAGE_SIZE)}
-            disabled={offset === 0}
-            className="px-3 py-1.5 text-xs bg-gray-900 border border-gray-700 rounded-lg disabled:opacity-40 hover:bg-gray-800 text-white transition-colors"
-          >
-            ← Previous
-          </button>
-          <button
-            onClick={() => search(offset + PAGE_SIZE)}
-            disabled={offset + PAGE_SIZE >= total}
-            className="px-3 py-1.5 text-xs bg-gray-900 border border-gray-700 rounded-lg disabled:opacity-40 hover:bg-gray-800 text-white transition-colors"
-          >
-            Next →
-          </button>
-        </div>
-      )}
     </div>
   )
 }
