@@ -9,7 +9,7 @@ requires analyst-or-above; everything else just requires a logged-in user.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
@@ -256,17 +256,32 @@ async def import_rules_csv(
 async def list_events(
     _: CurrentUser,
     unacked_only: bool = Query(False),
+    since: Optional[str] = Query(None, description="ISO datetime lower bound"),
+    until: Optional[str] = Query(None, description="ISO datetime upper bound"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     q = (
         "SELECT e.*, r.name AS rule_name FROM alert_events e "
         "JOIN alert_rules r ON r.id = e.rule_id"
     )
+    clauses = []
+    params: list = []
     if unacked_only:
-        q += " WHERE e.acked_at IS NULL"
+        clauses.append("e.acked_at IS NULL")
+    if since:
+        # fired_at is stored via SQLite's own datetime('now') (space-separated,
+        # no 'Z'/fractional seconds) — wrap the incoming ISO string in datetime()
+        # too so the comparison is format-normalized on both sides.
+        clauses.append("e.fired_at >= datetime(?)")
+        params.append(since)
+    if until:
+        clauses.append("e.fired_at <= datetime(?)")
+        params.append(until)
+    if clauses:
+        q += " WHERE " + " AND ".join(clauses)
     q += " ORDER BY e.fired_at DESC LIMIT 500"
 
-    async with db.execute(q) as cur:
+    async with db.execute(q, params) as cur:
         rows = await cur.fetchall()
     return [_event_to_dict(r) for r in rows]
 

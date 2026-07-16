@@ -105,6 +105,7 @@ class ClickHouseBackend(StorageBackend):
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         source_ip: Optional[str] = None,
+        collector_ip: Optional[str] = None,
         collector_name: Optional[str] = None,
         org: Optional[str] = None,
         log_group: Optional[str] = None,
@@ -128,6 +129,9 @@ class ClickHouseBackend(StorageBackend):
         if source_ip:
             conditions.append("source_ip = %(source_ip)s")
             params["source_ip"] = source_ip
+        if collector_ip:
+            conditions.append("collector_ip = %(collector_ip)s")
+            params["collector_ip"] = collector_ip
         if collector_name:
             conditions.append("collector_name = %(collector_name)s")
             params["collector_name"] = collector_name
