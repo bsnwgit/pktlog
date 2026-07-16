@@ -7,7 +7,13 @@ import { useTimezone } from '../hooks/useTimezone'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtTime(ts: string, timeZone: string): string {
-  return new Date(ts).toLocaleString([], {
+  // fired_at/acked_at/resolved_at are stored as naive UTC (SQLite's
+  // datetime('now'), no 'Z'/offset) — without forcing UTC interpretation here,
+  // the browser parses it against its own system timezone (not the app's
+  // configured display timezone), then the `timeZone` option below re-renders
+  // that wrong instant, compounding the error rather than fixing it.
+  const utc = ts.includes('T') || ts.endsWith('Z') ? ts : ts.replace(' ', 'T') + 'Z'
+  return new Date(utc).toLocaleString([], {
     timeZone,
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -656,6 +662,9 @@ export default function Alerts() {
   const [rulesSortKey, setRulesSortKey]     = useState<keyof AlertRule | 'topic' | null>(null)
   const [rulesSortDir, setRulesSortDir]     = useState<'asc' | 'desc'>('asc')
   const [toasts, setToasts]             = useState<AlertFiredPayload[]>([])
+  const [rulesExporting, setRulesExporting]     = useState(false)
+  const [rulesImportResult, setRulesImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null)
+  const rulesImportFileRef = useRef<HTMLInputElement>(null)
 
   // Live alert toast — fires whenever the engine triggers an alert
   const handleWsMessage = useCallback((msg: WsMessage) => {
@@ -736,6 +745,52 @@ export default function Alerts() {
       return
     }
     await loadRules()
+  }
+
+  const handleDownloadRulesTemplate = () => {
+    const rows = [
+      ['name', 'description', 'rule_type', 'conditions', 'time_window_min', 'severity', 'channels', 'cooldown_min', 'enabled'],
+      ['Collector gap — Branch-A', 'Fires when no syslog data arrives', 'collector_gap', '{"collector_ip": "10.0.1.5", "silence_minutes": 15}', '5', 'warning', 'inapp,email', '30', 'true'],
+    ]
+    const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'pktlog-alert-rules-template.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExportRules = async () => {
+    setRulesExporting(true)
+    try {
+      const res = await fetch('/api/alerts/rules/export', { headers: authHeaders() })
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = 'pktlog-alert-rules.csv'; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) { setError(e.message) }
+    finally { setRulesExporting(false) }
+  }
+
+  const handleImportRulesFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const headers: Record<string, string> = { 'Authorization': `Bearer ${getToken() ?? ''}` }
+      const res = await fetch('/api/alerts/rules/import-csv', { method: 'POST', headers, body: formData })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || res.statusText)
+      }
+      const result = await res.json()
+      setRulesImportResult(result)
+      if (result.created > 0) await loadRules()
+    } catch (e: any) { setError(e.message) }
   }
 
   const handleSaveRule = async (form: RuleFormData) => {
@@ -832,12 +887,30 @@ export default function Alerts() {
           </button>
         )}
         {tab === 'rules' && !addingRule && !editRule && (
-          <button
-            onClick={() => setAddingRule(true)}
-            className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg px-4 py-2 transition-colors"
-          >
-            + New rule
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleExportRules} disabled={rulesExporting}
+              className="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50">
+              {rulesExporting ? 'Exporting…' : '↓ Export CSV'}
+            </button>
+            <div className="flex items-center gap-1">
+              <button onClick={() => rulesImportFileRef.current?.click()}
+                className="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors rounded-r-none border-r border-gray-600">
+                ↑ Import CSV
+              </button>
+              <button onClick={handleDownloadRulesTemplate} title="Download CSV template"
+                className="px-2 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white rounded-lg transition-colors rounded-l-none"
+                aria-label="Download template">
+                template
+              </button>
+            </div>
+            <input ref={rulesImportFileRef} type="file" accept=".csv" className="hidden" onChange={handleImportRulesFile} />
+            <button
+              onClick={() => setAddingRule(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg px-4 py-2 transition-colors"
+            >
+              + New rule
+            </button>
+          </div>
         )}
       </div>
 
@@ -1049,6 +1122,44 @@ export default function Alerts() {
           </div>
             )
           })()}
+        </div>
+      )}
+
+      {rulesImportResult && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 py-8 px-4" onClick={() => setRulesImportResult(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-white mb-3">Import complete</h3>
+            <div className="space-y-1 mb-4">
+              <p className="text-sm text-green-400">✓ {rulesImportResult.created} rule{rulesImportResult.created !== 1 ? 's' : ''} created</p>
+              {rulesImportResult.skipped > 0 && (
+                <p className="text-sm text-yellow-400">⚠ {rulesImportResult.skipped} row{rulesImportResult.skipped !== 1 ? 's' : ''} skipped</p>
+              )}
+            </div>
+            {rulesImportResult.errors.length > 0 && (
+              <div className="bg-gray-800 rounded-lg px-3 py-2 max-h-36 overflow-y-auto mb-4">
+                {rulesImportResult.errors.map((e, i) => (
+                  <p key={i} className="text-xs text-red-400 font-mono">{e}</p>
+                ))}
+              </div>
+            )}
+            <div className="bg-gray-800/60 rounded-lg px-3 py-2 mb-4">
+              <p className="text-xs font-medium text-gray-400 mb-1">CSV columns (header row required)</p>
+              <p className="text-xs font-mono text-gray-500 break-all">
+                name, description, rule_type, conditions, time_window_min, severity, channels, cooldown_min, enabled
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                conditions: a JSON object string — shape depends on rule_type. channels: comma-separated (e.g. inapp,slack).
+              </p>
+            </div>
+            <div className="flex items-center justify-between">
+              <button onClick={handleDownloadRulesTemplate} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                ↓ Download template
+              </button>
+              <button onClick={() => setRulesImportResult(null)} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg">
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
