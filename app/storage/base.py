@@ -29,6 +29,7 @@ class StorageBackend(ABC):
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         source_ip: Optional[str] = None,
+        collector_ip: Optional[str] = None,
         collector_name: Optional[str] = None,
         org: Optional[str] = None,
         log_group: Optional[str] = None,
