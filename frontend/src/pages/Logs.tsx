@@ -201,6 +201,59 @@ function shortLogger(logger: string): string {
   return logger.replace(/^pktlog\./, '')
 }
 
+const PAGE_SIZE = 50
+
+/**
+ * Page-number bar: shows every page when there are 5 or fewer, otherwise
+ * pages 1-5, an ellipsis, then the last page — plus prev/next buttons.
+ */
+function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  if (totalPages <= 1) return null
+  // The visible block of 5 slides with the current page — e.g. Next from
+  // page 5 moves to page 6 and the block updates to show 6-10, not a fixed
+  // 1-5. Same in reverse for Prev.
+  const blockStart = Math.floor((page - 1) / 5) * 5 + 1
+  const blockEnd   = Math.min(blockStart + 4, totalPages)
+  const pages = Array.from({ length: blockEnd - blockStart + 1 }, (_, i) => blockStart + i)
+  const btn = (p: number) => clsx(
+    'text-xs min-w-[1.75rem] px-2 py-1 rounded-lg border transition-colors',
+    p === page
+      ? 'bg-blue-600/30 border-blue-500 text-blue-200'
+      : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white',
+  )
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        className="text-xs px-2.5 py-1 rounded-lg border border-gray-700 bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        ← Prev
+      </button>
+      {blockStart > 1 && (
+        <>
+          <button onClick={() => onChange(1)} className={btn(1)}>1</button>
+          <span className="px-1 text-gray-500 text-xs">..</span>
+        </>
+      )}
+      {pages.map(p => <button key={p} onClick={() => onChange(p)} className={btn(p)}>{p}</button>)}
+      {blockEnd < totalPages && (
+        <>
+          <span className="px-1 text-gray-500 text-xs">..</span>
+          <button onClick={() => onChange(totalPages)} className={btn(totalPages)}>{totalPages}</button>
+        </>
+      )}
+      <button
+        onClick={() => onChange(Math.min(totalPages, page + 1))}
+        disabled={page === totalPages}
+        className="text-xs px-2.5 py-1 rounded-lg border border-gray-700 bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        Next →
+      </button>
+    </div>
+  )
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Logs() {
@@ -217,6 +270,7 @@ export default function Logs() {
   const [search, setSearch]       = useState('')
   const [timeWindow, setTimeWindow] = useState<TimeWindow>({})
   const [liveLevel, setLiveLevel] = useState('WARNING')
+  const [page, setPage]           = useState(1)
 
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [loading, setLoading]         = useState(false)
@@ -234,7 +288,10 @@ export default function Logs() {
     if (!silent) setLoading(true)
     setError('')
     try {
-      const params: Record<string, string> = { limit: '300' }
+      const params: Record<string, string> = {
+        limit: String(PAGE_SIZE),
+        offset: String((page - 1) * PAGE_SIZE),
+      }
       if (level !== 'ALL') params.level = level
       if (logger)          params.logger = logger
       if (search)          params.search = search
@@ -253,7 +310,7 @@ export default function Logs() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [level, logger, search, timeWindow])
+  }, [level, logger, search, timeWindow, page])
 
   useEffect(() => {
     fetchLogs()
@@ -277,6 +334,7 @@ export default function Logs() {
       setRecords([])
       setTotal(0)
       setStats(null)
+      setPage(1)
     } catch (e: any) {
       setError(e.message ?? 'Clear failed')
     } finally {
@@ -368,7 +426,7 @@ export default function Logs() {
           {LEVELS.map(l => (
             <button
               key={l}
-              onClick={() => setLevel(l)}
+              onClick={() => { setLevel(l); setPage(1) }}
               className={clsx(
                 'text-xs px-2.5 py-1 rounded-lg border transition-colors',
                 level === l
@@ -385,7 +443,7 @@ export default function Logs() {
         {stats && stats.loggers.length > 0 && (
           <select
             value={logger}
-            onChange={e => setLogger(e.target.value)}
+            onChange={e => { setLogger(e.target.value); setPage(1) }}
             className="text-xs bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-blue-500"
           >
             <option value="">All loggers</option>
@@ -400,13 +458,13 @@ export default function Logs() {
           type="text"
           placeholder="Search messages…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
           onKeyDown={e => e.key === 'Enter' && fetchLogs()}
           className="text-xs bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-1 w-52 focus:outline-none focus:border-blue-500"
         />
 
         {/* Time range */}
-        <TimeRangeControl onChange={setTimeWindow} />
+        <TimeRangeControl onChange={w => { setTimeWindow(w); setPage(1) }} />
 
         {/* Live capture level (admin) */}
         {isAdmin && (
@@ -433,6 +491,9 @@ export default function Logs() {
           {error}
         </div>
       )}
+
+      {/* Pagination */}
+      <Pagination page={page} totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))} onChange={setPage} />
 
       {/* Log table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -507,7 +568,9 @@ export default function Logs() {
         {/* Footer */}
         {records.length > 0 && (
           <div className="px-4 py-2 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500">
-            <span>Showing {records.length.toLocaleString()} of {total.toLocaleString()} records (newest first)</span>
+            <span>
+              Showing {((page - 1) * PAGE_SIZE + 1).toLocaleString()}–{((page - 1) * PAGE_SIZE + records.length).toLocaleString()} of {total.toLocaleString()} records (newest first)
+            </span>
             {autoRefresh && (
               <span className="flex items-center gap-1.5 text-blue-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />

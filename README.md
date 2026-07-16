@@ -97,9 +97,15 @@ Alert-event and user last-login timestamps (`alert_events.fired_at`, `users.last
 
 The Application Logs page (search + level filter) also has a time-range dropdown — 1h/6h/24h/7d/30d/All time, plus **Custom range…** with two date/time pickers (defaulting to today, 12:00 AM–11:59 PM). The custom range validates that the end is after the start (same-day-with-earlier-end-time counts as invalid too) and disallows future times on either side, showing an inline error instead of silently applying an impossible filter.
 
+Both Application Logs and Syslog Explorer paginate server-side (50/page and 100/page respectively) with a page-number bar above the table: a sliding window of 5 numbers that follows the current page (Next from page 5 moves to 6-10, Prev the same way in reverse), a `1 ..` shortcut back to page 1 once past the first block, and a `.. N` shortcut to the last page.
+
 ### Alert rules bulk import/export
 
 Alerts → Rules has Export CSV / Import CSV / template-download buttons alongside "+ New rule", for provisioning many rules at once. Columns: `name, description, rule_type, conditions, time_window_min, severity, channels, cooldown_min, enabled` — `conditions` round-trips as a JSON object string (shape depends on `rule_type`), `channels` as a comma-separated column (e.g. `inapp,slack`).
+
+### Alert Investigate button
+
+Every active/history alert card has an **Investigate ↗** button that jumps straight to Syslog Explorer, pre-filtered to the alert's `collector_ip` (a new `collector_ip` search param/filter, distinct from the existing name-based `collector_name` filter) and a time window around when it fired. The "Unknown collector" registration link (Settings → Collectors, pre-filled IP) still appears alongside it for `new_host` alerts.
 
 ---
 
