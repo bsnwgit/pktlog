@@ -332,6 +332,7 @@ export interface SyslogRecord {
   received_at: string
   source_ip: string
   source_name: string
+  dest_ip: string
   facility: number
   facility_name: string
   severity: number
@@ -394,6 +395,7 @@ export type SyslogSearchParams = {
   start?: string
   end?: string
   source_ip?: string
+  dest_ip?: string
   collector_ip?: string
   collector_name?: string
   org?: string
