@@ -262,6 +262,29 @@ export const api = {
     request<{ status: string }>('/logs', { method: 'DELETE' }),
   setLogLevel: (level: string) =>
     request<{ status: string; level: string }>(`/logs/level?level=${level}`, { method: 'POST' }),
+
+  // ── User API keys / IP info ─────────────────────────────────────────────────
+  getUserApiKeys: () => request<UserApiKey[]>('/user-api-keys'),
+  setUserApiKey: (provider: string, api_key: string) =>
+    request<UserApiKey>(`/user-api-keys/${provider}`, { method: 'PUT', body: JSON.stringify({ api_key }) }),
+  testUserApiKey: (provider: string, api_key: string) =>
+    request<{ status: string; detail: string }>(`/user-api-keys/${provider}/test`, { method: 'POST', body: JSON.stringify({ api_key }) }),
+  getIpInfo: (ip: string) => request<IpInfoResult>(`/ip-info/${ip}`),
+}
+
+export interface IpInfoResult {
+  ip: string
+  ipinfo: Record<string, any> | null
+  ipinfo_error: string | null
+  abuseipdb: Record<string, any> | null
+  abuseipdb_error: string | null
+}
+
+export interface UserApiKey {
+  provider: string
+  label: string
+  api_key: string
+  updated_at: string | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -309,6 +332,7 @@ export interface SyslogRecord {
   received_at: string
   source_ip: string
   source_name: string
+  dest_ip: string
   facility: number
   facility_name: string
   severity: number
@@ -371,6 +395,7 @@ export type SyslogSearchParams = {
   start?: string
   end?: string
   source_ip?: string
+  dest_ip?: string
   collector_ip?: string
   collector_name?: string
   org?: string

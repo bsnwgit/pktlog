@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api, SyslogRecord, SyslogSearchParams } from '../api/client'
 import { useTimezone } from '../hooks/useTimezone'
 import HelpButton from '../components/HelpButton'
+import IpLink from '../components/IpLink'
 
 // ── Severity config ───────────────────────────────────────────────────────────
 
@@ -114,18 +115,19 @@ function Pagination({ page, totalPages, onChange }: { page: number; totalPages: 
 // hiding, no combining two columns into one line — so the dropdown is a
 // complete, literal listing of the full record, not just a subset.
 function ExpandedRow({ r, timezone }: { r: SyslogRecord; timezone: string }) {
-  const fields: [string, string][] = [
+  const fields: [string, React.ReactNode][] = [
     ['timestamp',      fmtTs(r.timestamp, timezone)],
     ['received_at',    fmtTs(r.received_at, timezone)],
-    ['source_ip',      r.source_ip],
+    ['source_ip',      <IpLink ip={r.source_ip} />],
     ['source_name',    r.source_name || '—'],
+    ['dest_ip',        r.dest_ip ? <IpLink ip={r.dest_ip} /> : '—'],
     ['facility',       String(r.facility)],
     ['facility_name',  r.facility_name],
     ['severity',       String(r.severity)],
     ['severity_name',  r.severity_name],
     ['program',        r.program || '—'],
     ['pid',            r.pid || '—'],
-    ['collector_ip',   r.collector_ip],
+    ['collector_ip',   <IpLink ip={r.collector_ip} />],
     ['collector_name', r.collector_name || '—'],
     ['org',            r.org || '—'],
     ['log_group',      r.log_group || '—'],
@@ -134,7 +136,7 @@ function ExpandedRow({ r, timezone }: { r: SyslogRecord; timezone: string }) {
 
   return (
     <tr className="bg-gray-950">
-      <td colSpan={6} className="px-5 py-3">
+      <td colSpan={7} className="px-5 py-3">
         <div className="space-y-2 text-xs font-mono">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-1 text-gray-400">
             {fields.map(([label, value]) => (
@@ -166,6 +168,7 @@ export default function SyslogExplorer() {
   const [severityMax, setSeverityMax] = useState(() => searchParams.get('severity_max') ?? '')
   const [program, setProgram]   = useState(() => searchParams.get('program') ?? '')
   const [sourceIp, setSourceIp] = useState(() => searchParams.get('source_ip') ?? '')
+  const [destIp, setDestIp] = useState(() => searchParams.get('dest_ip') ?? '')
   const [collectorIp, setCollectorIp] = useState(() => searchParams.get('collector_ip') ?? '')
   const [collectorName, setCollectorName] = useState(() => searchParams.get('collector_name') ?? '')
   const [q, setQ] = useState(() => searchParams.get('q') ?? '')
@@ -213,6 +216,7 @@ export default function SyslogExplorer() {
       if (severityMax !== '') params.severity_max = Number(severityMax)
       if (program)        params.program = program
       if (sourceIp)       params.source_ip = sourceIp
+      if (destIp)         params.dest_ip = destIp
       if (collectorIp)    params.collector_ip = collectorIp
       if (collectorName)  params.collector_name = collectorName
       if (q)              params.q = q
@@ -227,7 +231,7 @@ export default function SyslogExplorer() {
     } finally {
       setLoading(false)
     }
-  }, [presetIdx, severityMax, program, sourceIp, collectorIp, collectorName, q, absWindow])
+  }, [presetIdx, severityMax, program, sourceIp, destIp, collectorIp, collectorName, q, absWindow])
 
   // Run on mount and when filters change
   useEffect(() => { search(0) }, [search])
@@ -245,6 +249,7 @@ export default function SyslogExplorer() {
           <p>Queries hit raw syslog records directly, server-side paginated — timestamps are displayed in the app's configured timezone (Settings → General), not your browser's local zone.</p>
           <p>Only messages from a <span className="text-gray-300 font-medium">registered, enabled collector</span> (Settings → Collectors) ever reach storage — a device sending syslog on the wire that isn't registered won't appear here at all, not even unlabeled.</p>
           <p>Rows expand in place for the full raw message — useful for headerless or non-standard formats (some devices send syslog-shaped lines with no <code className="text-gray-400">&lt;PRI&gt;</code> header, or no header at all) that still get parsed into a real message rather than showing up as unparseable.</p>
+          <p><span className="text-gray-300 font-medium">Destination</span> is only populated for messages that embed a <code className="text-gray-400">DST=</code> field in their content (netfilter/firewall-style logs) — most syslog lines have no concept of a destination IP, so this column is blank for them, not broken.</p>
         </HelpButton>
       </div>
 
@@ -319,6 +324,13 @@ export default function SyslogExplorer() {
           />
           <input
             type="text"
+            value={destIp}
+            onChange={e => setDestIp(e.target.value)}
+            placeholder="Destination IP…"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-40 font-mono"
+          />
+          <input
+            type="text"
             value={collectorIp}
             onChange={e => setCollectorIp(e.target.value)}
             placeholder="Collector IP…"
@@ -340,7 +352,7 @@ export default function SyslogExplorer() {
           />
           <button
             onClick={() => {
-              setSourceIp(''); setCollectorIp(''); setCollectorName(''); setProgram('')
+              setSourceIp(''); setDestIp(''); setCollectorIp(''); setCollectorName(''); setProgram('')
               setSeverityMax(''); setQDraft(''); setQ(''); setAbsWindow(null)
             }}
             className="text-xs text-gray-500 hover:text-white transition-colors ml-auto"
@@ -386,6 +398,7 @@ export default function SyslogExplorer() {
                 <th className="px-3 py-2.5 text-left font-medium w-24">Severity</th>
                 <th className="px-3 py-2.5 text-left font-medium w-32">Collector</th>
                 <th className="px-3 py-2.5 text-left font-medium w-32">Source</th>
+                <th className="px-3 py-2.5 text-left font-medium w-32">Destination</th>
                 <th className="px-3 py-2.5 text-left font-medium w-28">Program</th>
                 <th className="px-3 py-2.5 text-left font-medium">Message</th>
               </tr>
@@ -412,10 +425,13 @@ export default function SyslogExplorer() {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-300 truncate max-w-0 w-32">
-                        {r.collector_name || r.collector_ip}
+                        {r.collector_name || <IpLink ip={r.collector_ip} />}
                       </td>
                       <td className="px-3 py-2 font-mono text-xs text-gray-300 truncate max-w-0 w-32">
-                        {r.source_name || r.source_ip}
+                        {r.source_name || <IpLink ip={r.source_ip} />}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-gray-300 truncate max-w-0 w-32">
+                        {r.dest_ip ? <IpLink ip={r.dest_ip} /> : '—'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-400 truncate max-w-0 w-28">
                         {r.program || '—'}

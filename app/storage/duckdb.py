@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS syslog_events (
     received_at      TIMESTAMPTZ NOT NULL,
     source_ip        VARCHAR     DEFAULT '',
     source_name      VARCHAR     DEFAULT '',
+    dest_ip          VARCHAR     DEFAULT '',
     facility         INTEGER     DEFAULT 0,
     facility_name    VARCHAR     DEFAULT '',
     severity         INTEGER     DEFAULT 6,
@@ -100,6 +101,7 @@ CREATE TABLE IF NOT EXISTS syslog_events (
 
 CREATE INDEX IF NOT EXISTS idx_syslog_ts            ON syslog_events (timestamp);
 CREATE INDEX IF NOT EXISTS idx_syslog_source_ip     ON syslog_events (source_ip);
+CREATE INDEX IF NOT EXISTS idx_syslog_dest_ip       ON syslog_events (dest_ip);
 CREATE INDEX IF NOT EXISTS idx_syslog_collector_ip  ON syslog_events (collector_ip);
 CREATE INDEX IF NOT EXISTS idx_syslog_org           ON syslog_events (org);
 CREATE INDEX IF NOT EXISTS idx_syslog_log_group     ON syslog_events (log_group);
@@ -299,7 +301,7 @@ class DuckDBBackend(StorageBackend):
         def _insert():
             rows = [r.to_clickhouse_row() for r in records]
             self._wconn.executemany(
-                "INSERT INTO syslog_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO syslog_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
             return len(rows)
@@ -314,6 +316,7 @@ class DuckDBBackend(StorageBackend):
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         source_ip: Optional[str] = None,
+        dest_ip: Optional[str] = None,
         collector_ip: Optional[str] = None,
         collector_name: Optional[str] = None,
         org: Optional[str] = None,
@@ -335,6 +338,8 @@ class DuckDBBackend(StorageBackend):
                 conditions.append("timestamp <= ?"); params.append(end)
             if source_ip:
                 conditions.append("source_ip = ?"); params.append(source_ip)
+            if dest_ip:
+                conditions.append("dest_ip = ?"); params.append(dest_ip)
             if collector_ip:
                 conditions.append("collector_ip = ?"); params.append(collector_ip)
             if collector_name:
@@ -362,7 +367,7 @@ class DuckDBBackend(StorageBackend):
                 ).fetchone()[0]
 
                 rows = conn.execute(f"""
-                    SELECT timestamp, received_at, source_ip, source_name,
+                    SELECT timestamp, received_at, source_ip, source_name, dest_ip,
                            facility, facility_name, severity, severity_name,
                            program, pid, message, raw,
                            collector_ip, collector_name, org, log_group, site
@@ -499,17 +504,18 @@ def _row_to_dict(r: tuple) -> dict:
         "received_at":    (r[1].isoformat() + "Z") if r[1] else None,
         "source_ip":      r[2],
         "source_name":    r[3],
-        "facility":       r[4],
-        "facility_name":  r[5],
-        "severity":       r[6],
-        "severity_name":  r[7],
-        "program":        r[8],
-        "pid":            r[9],
-        "message":        r[10],
-        "raw":            r[11],
-        "collector_ip":   r[12],
-        "collector_name": r[13],
-        "org":            r[14],
-        "log_group":      r[15],
-        "site":           r[16],
+        "dest_ip":        r[4],
+        "facility":       r[5],
+        "facility_name":  r[6],
+        "severity":       r[7],
+        "severity_name":  r[8],
+        "program":        r[9],
+        "pid":            r[10],
+        "message":        r[11],
+        "raw":            r[12],
+        "collector_ip":   r[13],
+        "collector_name": r[14],
+        "org":            r[15],
+        "log_group":      r[16],
+        "site":           r[17],
     }
