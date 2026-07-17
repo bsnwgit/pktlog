@@ -245,6 +245,9 @@ if _frontend_dist.exists():
     async def serve_spa(request: Request, full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
+        static_file = _frontend_dist / full_path
+        if static_file.exists() and static_file.is_file():
+            return FileResponse(str(static_file))
         index = _frontend_dist / "index.html"
         response = FileResponse(str(index))
 
