@@ -32,6 +32,7 @@ async def search_logs(
     end:            Optional[datetime] = Query(None, description="ISO 8601 end time"),
     # Source filters
     source_ip:      Optional[str]  = Query(None),
+    dest_ip:        Optional[str]  = Query(None),
     collector_ip:   Optional[str]  = Query(None),
     collector_name: Optional[str]  = Query(None),
     # Hierarchy filters
@@ -59,6 +60,7 @@ async def search_logs(
             start=start,
             end=end,
             source_ip=source_ip,
+            dest_ip=dest_ip,
             collector_ip=collector_ip,
             collector_name=collector_name,
             org=org,

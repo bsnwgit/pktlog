@@ -103,6 +103,7 @@ _RE_3164 = re.compile(
 # extracted directly out of the message text.
 _RE_DESCR = re.compile(r'DESCR="([^"]*)"')
 _RE_KV_SRC = re.compile(r'(?:^|\s)SRC=(\S+)')
+_RE_KV_DST = re.compile(r'(?:^|\s)DST=(\S+)')
 
 # Some UniFi AP kernel/wireless-driver debug lines have no syslog header at
 # all (no PRI, no RFC 3164 timestamp, no hostname) — just a device-internal
@@ -178,12 +179,15 @@ def _parse_5424(m: re.Match, record: SyslogRecord, received_at: datetime) -> Non
 def _extract_netfilter_fields(record: SyslogRecord) -> None:
     """
     When message looks like kernel netfilter LOG output (DESCR="..." and/or
-    SRC=<ip> present among the IN=/OUT=/MAC=/PROTO=/... KV pairs), replace
-    the technical KV blob with DESCR's human-readable text as message, and
-    prefer the embedded SRC= as source_ip over the syslog HOSTNAME field —
-    for this log type the actual traffic source is far more useful than the
-    reporting device's own name (which is already captured separately as
-    collector_name/collector_ip). raw is left untouched either way.
+    SRC=<ip>/DST=<ip> present among the IN=/OUT=/MAC=/PROTO=/... KV pairs),
+    replace the technical KV blob with DESCR's human-readable text as
+    message, prefer the embedded SRC= as source_ip over the syslog HOSTNAME
+    field — for this log type the actual traffic source is far more useful
+    than the reporting device's own name (which is already captured
+    separately as collector_name/collector_ip) — and lift DST= into its own
+    dest_ip field the same way. raw is left untouched either way. Not every
+    matching line carries a DST= (e.g. some IN=/OUT=-only variants); dest_ip
+    stays "" when absent rather than guessing.
     """
     text = record.message
     if "DESCR=" not in text and "SRC=" not in text:
@@ -196,6 +200,10 @@ def _extract_netfilter_fields(record: SyslogRecord) -> None:
     src = _RE_KV_SRC.search(text)
     if src:
         record.source_ip = src.group(1)
+
+    dst = _RE_KV_DST.search(text)
+    if dst:
+        record.dest_ip = dst.group(1)
 
 
 def _strip_kernel_debug_prefix(record: SyslogRecord) -> None:
