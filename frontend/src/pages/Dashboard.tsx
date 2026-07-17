@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { api, SyslogStats, SyslogTimeseriesPoint } from '../api/client'
+import HelpButton from '../components/HelpButton'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useTimezone } from '../hooks/useTimezone'
 
@@ -125,7 +126,13 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Dashboard</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-white">Dashboard</h1>
+            <HelpButton title="Dashboard — How It Works">
+              <p>Severity stat cards, the events-over-time chart, and top hosts are all scoped to the window picker at top right — switching windows re-queries everything on this page at once.</p>
+              <p>"Open Explorer →" on the Event Volume chart jumps to Syslog Explorer unfiltered — the severity cards above it are counts only, not clickable filters.</p>
+            </HelpButton>
+          </div>
           <p className="text-xs text-gray-500 mt-0.5">
             {totalEvents.toLocaleString()} events · last {win.label}
           </p>
