@@ -3,7 +3,7 @@ app/api/suite.py — pktHub integration endpoints.
 
 Token flow (new):
   1. pktApp generates a random suite_token on first call to GET /api/suite/token
-  2. Admin copies the token from Settings → Integrations → pktHub Integration
+  2. Admin copies the token from Settings → Integrations → Suite Integration
   3. Admin pastes the token into pktHub App Manager when registering this app
   4. pktHub stores it and sends it as X-Suite-Token on every proxied request
 
