@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api, SyslogRecord, SyslogSearchParams } from '../api/client'
 import { useTimezone } from '../hooks/useTimezone'
 import HelpButton from '../components/HelpButton'
+import IpLink from '../components/IpLink'
 
 // ── Severity config ───────────────────────────────────────────────────────────
 
@@ -114,10 +115,10 @@ function Pagination({ page, totalPages, onChange }: { page: number; totalPages: 
 // hiding, no combining two columns into one line — so the dropdown is a
 // complete, literal listing of the full record, not just a subset.
 function ExpandedRow({ r, timezone }: { r: SyslogRecord; timezone: string }) {
-  const fields: [string, string][] = [
+  const fields: [string, React.ReactNode][] = [
     ['timestamp',      fmtTs(r.timestamp, timezone)],
     ['received_at',    fmtTs(r.received_at, timezone)],
-    ['source_ip',      r.source_ip],
+    ['source_ip',      <IpLink ip={r.source_ip} />],
     ['source_name',    r.source_name || '—'],
     ['facility',       String(r.facility)],
     ['facility_name',  r.facility_name],
@@ -125,7 +126,7 @@ function ExpandedRow({ r, timezone }: { r: SyslogRecord; timezone: string }) {
     ['severity_name',  r.severity_name],
     ['program',        r.program || '—'],
     ['pid',            r.pid || '—'],
-    ['collector_ip',   r.collector_ip],
+    ['collector_ip',   <IpLink ip={r.collector_ip} />],
     ['collector_name', r.collector_name || '—'],
     ['org',            r.org || '—'],
     ['log_group',      r.log_group || '—'],
@@ -412,10 +413,10 @@ export default function SyslogExplorer() {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-300 truncate max-w-0 w-32">
-                        {r.collector_name || r.collector_ip}
+                        {r.collector_name || <IpLink ip={r.collector_ip} />}
                       </td>
                       <td className="px-3 py-2 font-mono text-xs text-gray-300 truncate max-w-0 w-32">
-                        {r.source_name || r.source_ip}
+                        {r.source_name || <IpLink ip={r.source_ip} />}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-400 truncate max-w-0 w-28">
                         {r.program || '—'}

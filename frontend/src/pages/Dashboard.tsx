@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 import { api, SyslogStats, SyslogTimeseriesPoint } from '../api/client'
 import HelpButton from '../components/HelpButton'
+import IpLink from '../components/IpLink'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useTimezone } from '../hooks/useTimezone'
 
@@ -234,10 +235,10 @@ export default function Dashboard() {
                 <div key={i} className="px-5 py-2.5 flex items-center justify-between">
                   <div className="min-w-0">
                     <p className="text-sm text-white truncate font-mono">
-                      {h.source_name || h.source_ip}
+                      {h.source_name || <IpLink ip={h.source_ip} />}
                     </p>
                     {h.source_name && (
-                      <p className="text-xs text-gray-500 font-mono">{h.source_ip}</p>
+                      <p className="text-xs text-gray-500 font-mono"><IpLink ip={h.source_ip} /></p>
                     )}
                   </div>
                   <span className="text-sm text-gray-300 tabular-nums ml-4 flex-shrink-0">
