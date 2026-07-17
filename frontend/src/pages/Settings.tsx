@@ -5,6 +5,7 @@ import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
 import { useTimezone } from '../hooks/useTimezone'
 import HelpButton from '../components/HelpButton'
+import { copyToClipboard } from '../utils/clipboard'
 import IpLink from '../components/IpLink'
 
 // ── Generic helpers ────────────────────────────────────────────────────────────
@@ -379,7 +380,7 @@ function parseIdpMetadata(xml: string): {
 }
 
 
-// ── pktHub Integration component ─────────────────────────────────────────────
+// ── Suite Integration component ───────────────────────────────────────────────
 function PktHubTokenDisplay() {
   const [token, setToken]           = useState('')
   const [revealed, setRevealed]     = useState(false)
@@ -454,10 +455,9 @@ function PktHubTokenDisplay() {
                 {revealed ? 'Hide' : 'Reveal'}
               </button>
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(token)
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 2000)
+                onClick={async () => {
+                  const ok = await copyToClipboard(token)
+                  if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2000) }
                 }}
                 className="px-3 py-1.5 text-xs font-medium text-white rounded-lg whitespace-nowrap transition-colors"
                 style={{ background: copied ? '#16a34a' : '#2563eb' }}
@@ -516,7 +516,7 @@ function PktHubTokenDisplay() {
     </>
   )
 }
-// ── End pktHub Integration ────────────────────────────────────────────────────
+// ── End Suite Integration ─────────────────────────────────────────────────────
 
 
 export default function Settings() {
@@ -1260,7 +1260,7 @@ export default function Settings() {
             title: 'Integrations — How It Works',
             content: <>
               <p><span className="text-gray-300 font-medium">SSL/TLS</span> accepts either a combined PFX/P12 file or a separate PEM cert+key pair — the running service auto-detects and loads whichever was uploaded at startup.</p>
-              <p><span className="text-gray-300 font-medium">pktHub Integration</span> is one-directional discovery: copy the Suite Token here into pktHub's App Manager when registering this app, so pktHub can proxy into it with users already signed in. Regenerating the token immediately revokes the old one.</p>
+              <p><span className="text-gray-300 font-medium">Suite Integration</span> is one-directional discovery: copy the Suite Token here into pktHub's App Manager when registering this app, so pktHub can proxy into it with users already signed in. Regenerating the token immediately revokes the old one.</p>
             </>,
           }}
         >
@@ -1285,9 +1285,9 @@ export default function Settings() {
             <SslPanel sslEnabled={bool('ssl_enabled')} onToggleSSL={v => { set('ssl_enabled', v); api.bulkUpdateSettings({ ssl_enabled: v }).catch(() => {}) }} />
           </div>
 
-          {/* pktHub Integration */}
+          {/* Suite Integration */}
           <div className="pt-4 pb-1">
-            <p className="text-xs font-semibold text-white uppercase tracking-wider">pktHub Integration</p>
+            <p className="text-xs font-semibold text-white uppercase tracking-wider">Suite Integration</p>
           </div>
           <PktHubTokenDisplay />
         </Section>
