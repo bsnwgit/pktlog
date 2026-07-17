@@ -1,6 +1,6 @@
 """
 SyslogRecord — canonical in-memory representation of a parsed syslog event.
-Matches the ClickHouse syslog_events table column-for-column (17 fields).
+Matches the ClickHouse syslog_events table column-for-column (18 fields).
 """
 from __future__ import annotations
 
@@ -43,6 +43,10 @@ class SyslogRecord:
     source_ip:      str = ""
     source_name:    str = ""
 
+    # Destination IP (parsed from message content, e.g. netfilter DST= — not
+    # every log line carries one; "" when absent)
+    dest_ip:        str = ""
+
     # Syslog standard fields
     facility:       int = 0
     facility_name:  str = ""
@@ -80,6 +84,7 @@ class SyslogRecord:
             self.received_at,
             self.source_ip,
             self.source_name,
+            self.dest_ip,
             self.facility,
             self.facility_name,
             self.severity,

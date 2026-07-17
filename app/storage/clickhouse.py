@@ -23,7 +23,7 @@ settings = get_settings()
 # Column order must match SyslogRecord.to_clickhouse_row()
 _INSERT_COLS = """
     timestamp, received_at,
-    source_ip, source_name,
+    source_ip, source_name, dest_ip,
     facility, facility_name,
     severity, severity_name,
     program, pid,
@@ -105,6 +105,7 @@ class ClickHouseBackend(StorageBackend):
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         source_ip: Optional[str] = None,
+        dest_ip: Optional[str] = None,
         collector_ip: Optional[str] = None,
         collector_name: Optional[str] = None,
         org: Optional[str] = None,
@@ -129,6 +130,9 @@ class ClickHouseBackend(StorageBackend):
         if source_ip:
             conditions.append("source_ip = %(source_ip)s")
             params["source_ip"] = source_ip
+        if dest_ip:
+            conditions.append("dest_ip = %(dest_ip)s")
+            params["dest_ip"] = dest_ip
         if collector_ip:
             conditions.append("collector_ip = %(collector_ip)s")
             params["collector_ip"] = collector_ip
@@ -163,7 +167,7 @@ class ClickHouseBackend(StorageBackend):
         total = (await asyncio.to_thread(self._execute, count_q, params))[0][0]
 
         rows_q = f"""
-            SELECT timestamp, received_at, source_ip, source_name,
+            SELECT timestamp, received_at, source_ip, source_name, dest_ip,
                    facility, facility_name, severity, severity_name,
                    program, pid, message, raw,
                    collector_ip, collector_name, org, log_group, site
@@ -381,17 +385,18 @@ def _row_to_dict(r: tuple) -> dict:
         "received_at":    (r[1].isoformat() + "Z") if r[1] else None,
         "source_ip":      r[2],
         "source_name":    r[3],
-        "facility":       r[4],
-        "facility_name":  r[5],
-        "severity":       r[6],
-        "severity_name":  r[7],
-        "program":        r[8],
-        "pid":            r[9],
-        "message":        r[10],
-        "raw":            r[11],
-        "collector_ip":   r[12],
-        "collector_name": r[13],
-        "org":            r[14],
-        "log_group":      r[15],
-        "site":           r[16],
+        "dest_ip":        r[4],
+        "facility":       r[5],
+        "facility_name":  r[6],
+        "severity":       r[7],
+        "severity_name":  r[8],
+        "program":        r[9],
+        "pid":            r[10],
+        "message":        r[11],
+        "raw":            r[12],
+        "collector_ip":   r[13],
+        "collector_name": r[14],
+        "org":            r[15],
+        "log_group":      r[16],
+        "site":           r[17],
     }
