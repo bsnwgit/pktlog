@@ -5,6 +5,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, SyslogRecord, SyslogSearchParams } from '../api/client'
 import { useTimezone } from '../hooks/useTimezone'
+import HelpButton from '../components/HelpButton'
 
 // ── Severity config ───────────────────────────────────────────────────────────
 
@@ -238,7 +239,14 @@ export default function SyslogExplorer() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-white">Syslog Explorer</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-xl font-bold text-white">Syslog Explorer</h1>
+        <HelpButton title="Syslog Explorer — How It Works">
+          <p>Queries hit raw syslog records directly, server-side paginated — timestamps are displayed in the app's configured timezone (Settings → General), not your browser's local zone.</p>
+          <p>Only messages from a <span className="text-gray-300 font-medium">registered, enabled collector</span> (Settings → Collectors) ever reach storage — a device sending syslog on the wire that isn't registered won't appear here at all, not even unlabeled.</p>
+          <p>Rows expand in place for the full raw message — useful for headerless or non-standard formats (some devices send syslog-shaped lines with no <code className="text-gray-400">&lt;PRI&gt;</code> header, or no header at all) that still get parsed into a real message rather than showing up as unparseable.</p>
+        </HelpButton>
+      </div>
 
       {/* Filter bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">

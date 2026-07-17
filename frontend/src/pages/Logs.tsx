@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, LogRecord, LogStats } from '../api/client'
 import { useAuth } from '../store/auth'
 import { useTimezone } from '../hooks/useTimezone'
+import HelpButton from '../components/HelpButton'
 import clsx from 'clsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -361,7 +362,14 @@ export default function Logs() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-white">Application Logs</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-white">Application Logs</h1>
+            <HelpButton title="Application Logs — How It Works">
+              <p>This is pktLog's <span className="text-gray-300 font-medium">own backend log stream</span> — service startup, ingest errors, alert evaluation, auth events — not syslog data received from your devices. For that, use Syslog Explorer instead.</p>
+              <p>Level filter and search combine — narrowing to <code className="text-gray-400">ERROR</code> plus a keyword returns only errors matching that text.</p>
+              <p><span className="text-gray-300 font-medium">Custom range</span> in the time picker pins an exact from/to window instead of a relative preset — useful when correlating a log entry against a specific incident timestamp.</p>
+            </HelpButton>
+          </div>
           <p className="text-sm text-gray-400 mt-0.5">
             {total.toLocaleString()} records stored
             {stats?.latest_ts && <> · last entry {fmtTs(stats.latest_ts, timezone)}</>}
