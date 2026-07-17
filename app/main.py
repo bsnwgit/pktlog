@@ -26,6 +26,8 @@ from app.api import suite as suite_router
 from app.api import widgets as widgets_router
 from app.api import alerts as alerts_router
 from app.api import ws as ws_router
+from app.api import user_api_keys as user_api_keys_router
+from app.api import ip_info as ip_info_router
 
 settings = get_settings()
 log = logging.getLogger("pktlog")
@@ -199,6 +201,8 @@ app.include_router(suite_router.router, prefix="/api/suite", tags=["suite"])
 app.include_router(widgets_router.router,  prefix="/api",          tags=["widgets"])
 app.include_router(alerts_router.router,   prefix="/api/alerts",   tags=["alerts"])
 app.include_router(ws_router.router,       prefix="/api/ws",       tags=["websocket"])
+app.include_router(user_api_keys_router.router, prefix="/api/user-api-keys", tags=["user-api-keys"])
+app.include_router(ip_info_router.router,       prefix="/api/ip-info",       tags=["ip-info"])
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

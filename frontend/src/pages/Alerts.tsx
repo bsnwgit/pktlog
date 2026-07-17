@@ -4,6 +4,7 @@ import { api, AlertRule, AlertEvent, getToken } from '../api/client'
 import { useWebSocket, type WsMessage, type AlertFiredPayload } from '../hooks/useWebSocket'
 import { useTimezone } from '../hooks/useTimezone'
 import HelpButton from '../components/HelpButton'
+import IpLink, { linkifyIps } from '../components/IpLink'
 
 // ── Time range ────────────────────────────────────────────────────────────────
 
@@ -393,7 +394,7 @@ type TopSource = { source_ip: string; count: number }
 function MiniTable({ title, headers, rows }: {
   title: string
   headers: string[]
-  rows: (string | number)[][]
+  rows: (string | number | React.ReactNode)[][]
 }) {
   if (!rows.length) return null
   return (
@@ -412,7 +413,7 @@ function MiniTable({ title, headers, rows }: {
             <tr key={ri} className="border-t border-gray-800/70">
               {row.map((cell, ci) => (
                 <td key={ci} className={`py-1 ${ci === row.length - 1 ? 'text-right text-gray-200' : 'text-gray-200 font-mono'}`}>
-                  {typeof cell === 'string' ? cell : cell.toLocaleString()}
+                  {typeof cell === 'string' || typeof cell === 'number' ? (typeof cell === 'string' ? cell : cell.toLocaleString()) : cell}
                 </td>
               ))}
             </tr>
@@ -438,7 +439,7 @@ function DetailsPanel({ details }: { details: DetailMap }) {
 
   const kvs = Object.entries(details).filter(([k]) => !META_SKIP.has(k))
 
-  const topSourceRows = (topSources || []).map(s => [s.source_ip, s.count])
+  const topSourceRows = (topSources || []).map(s => [<IpLink ip={s.source_ip} />, s.count])
 
   return (
     <div className="mt-3 space-y-3">
@@ -447,7 +448,8 @@ function DetailsPanel({ details }: { details: DetailMap }) {
         <div className="flex flex-wrap gap-2">
           {chips.map(([k, label, v]) => (
             <span key={k} className="text-xs bg-blue-500/15 text-blue-300 border border-blue-500/25 px-2.5 py-0.5 rounded-full">
-              <span className="text-blue-500/70 mr-1">{label}</span>{v}
+              <span className="text-blue-500/70 mr-1">{label}</span>
+              <IpLink ip={v} className="text-blue-300" />
             </span>
           ))}
         </div>
@@ -529,7 +531,7 @@ function EventCard({ event, onAck, timezone }: { event: AlertEvent; onAck: (id: 
           )}
           <div className="min-w-0">
             <p className="text-sm font-medium text-white truncate">{event.rule_name}</p>
-            <p className="text-sm text-white mt-0.5">{event.message}</p>
+            <p className="text-sm text-white mt-0.5">{linkifyIps(event.message)}</p>
             {isResolved && (
               <p className="text-xs text-green-500/70 mt-0.5">Resolved {fmtTime(event.resolved_at!, timezone)}</p>
             )}
@@ -1035,7 +1037,7 @@ export default function Alerts() {
                 <span className="w-2 h-2 rounded-full bg-current flex-shrink-0 animate-pulse" />
                 <span className="font-medium flex-shrink-0 capitalize">{t.severity}</span>
                 <span className="font-semibold flex-shrink-0">{t.rule_name}</span>
-                <span className="truncate opacity-80">{t.message}</span>
+                <span className="truncate opacity-80">{linkifyIps(t.message)}</span>
               </div>
               <button
                 onClick={() => setToasts(prev => prev.filter(x => x.event_id !== t.event_id))}
