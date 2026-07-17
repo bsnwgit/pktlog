@@ -4,6 +4,7 @@ import { api, Collector, CollectorIn, User, UserIn, SslStatus } from '../api/cli
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
 import { useTimezone } from '../hooks/useTimezone'
+import HelpButton from '../components/HelpButton'
 
 // ── Generic helpers ────────────────────────────────────────────────────────────
 type Settings = Record<string, unknown>
@@ -118,9 +119,10 @@ function RestartServiceRow() {
 
 // ── Section wrapper with Save ─────────────────────────────────────────────────
 function Section({
-  title, children, onSave, saving, saved, error,
+  title, help, children, onSave, saving, saved, error,
 }: {
   title: string
+  help?: { title: string; content: React.ReactNode }
   children: React.ReactNode
   onSave: () => Promise<void>
   saving: boolean
@@ -129,8 +131,9 @@ function Section({
 }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-800">
+      <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
         <h2 className="text-sm font-semibold text-white">{title}</h2>
+        {help && <HelpButton title={help.title}>{help.content}</HelpButton>}
       </div>
       <div className="px-6 py-2">
         {children}
@@ -730,7 +733,15 @@ export default function Settings() {
 
       {/* General */}
       {tab === 'general' && (
-        <Section title="General" onSave={generalSave.save} saving={generalSave.saving} saved={generalSave.saved} error={generalSave.error}>
+        <Section title="General" onSave={generalSave.save} saving={generalSave.saving} saved={generalSave.saved} error={generalSave.error}
+          help={{
+            title: 'General — How It Works',
+            content: <>
+              <p><span className="text-gray-300 font-medium">Base URL</span> feeds the SAML ACS/metadata URLs on the Auth tab and any links posted in Slack/Email/webhook notifications — set it to the actual externally-reachable address before configuring SSO or notifications, or those will point at the wrong place.</p>
+              <p><span className="text-gray-300 font-medium">AI Assistant</span> needs its own Anthropic API key (console.anthropic.com, separate from a Claude Enterprise seat) before the in-app chat panel does anything. Haiku is the default: fastest/cheapest for syslog-context questions.</p>
+            </>,
+          }}
+        >
           <Field label="App name" hint="Displayed in browser tab and header">
             <TextInput value={str('app_name', 'pktLog')} onChange={v => set('app_name', v)} />
           </Field>
@@ -785,14 +796,23 @@ export default function Settings() {
 
       {/* Storage */}
       {tab === 'storage' && (
-        <Section title="Storage" onSave={storageSave.save} saving={storageSave.saving} saved={storageSave.saved} error={storageSave.error}>
-          <Field label="Backend" hint="DuckDB is the default; ClickHouse requires a separate installation. A service restart is required after changing this setting.">
+        <Section title="Storage" onSave={storageSave.save} saving={storageSave.saving} saved={storageSave.saved} error={storageSave.error}
+          help={{
+            title: 'Storage — How It Works',
+            content: <>
+              <p>Switching <span className="text-gray-300 font-medium">Backend</span> requires a service restart to actually take effect — the running process picks its storage driver once at startup, so saving this field alone won't move any data.</p>
+              <p><span className="text-gray-300 font-medium">ClickHouse is the actual default</span> for this app — DuckDB is the embedded alternative for smaller/simpler deployments with no external service to run.</p>
+              <p>Retention days apply per-tier — raw syslog records are usually kept far shorter than hourly rollups. <span className="text-gray-300 font-medium">Manual cleanup</span> applies current thresholds immediately instead of waiting for the next scheduled pass; on ClickHouse the actual deletion is a queued TTL mutation, so it may not be instant even after this returns.</p>
+            </>,
+          }}
+        >
+          <Field label="Backend" hint="ClickHouse is the default; DuckDB is embedded and needs no separate service. A service restart is required after changing this setting.">
             <SelectInput
-              value={str('storage_backend', 'duckdb')}
+              value={str('storage_backend', 'clickhouse')}
               onChange={v => set('storage_backend', v)}
               options={[
-                { value: 'duckdb', label: 'DuckDB (default)' },
-                { value: 'clickhouse', label: 'ClickHouse (requires separate install)' },
+                { value: 'clickhouse', label: 'ClickHouse (default)' },
+                { value: 'duckdb', label: 'DuckDB (embedded, no external service)' },
               ]}
             />
           </Field>
@@ -851,7 +871,16 @@ export default function Settings() {
 
       {/* Backup */}
       {tab === 'backup' && (
-        <Section title="Backup" onSave={backupSave.save} saving={backupSave.saving} saved={backupSave.saved} error={backupSave.error}>
+        <Section title="Backup" onSave={backupSave.save} saving={backupSave.saving} saved={backupSave.saved} error={backupSave.error}
+          help={{
+            title: 'Backup — How It Works',
+            content: <>
+              <p>A backup always includes the SQLite database (settings, collectors, users, alert rules) and <code className="text-gray-400">config.yaml</code>. <span className="text-gray-300 font-medium">Include ClickHouse flows</span> additionally exports full syslog history — worth disabling if you only care about configuration, since log history is usually the largest part by far.</p>
+              <p><span className="text-gray-300 font-medium">Rotation count</span> caps how many snapshots (scheduled or manual) stay on disk — the oldest is deleted automatically once you exceed it.</p>
+              <p><span className="text-gray-300 font-medium">Export bundle</span> is a one-off download, separate from the rotation-managed snapshots above. <span className="text-amber-500 font-medium">Restore always requires a service restart</span> afterward for config changes in the bundle to apply.</p>
+            </>,
+          }}
+        >
           <Field label="Auto backup" hint="Run a scheduled backup on the O2 server at the configured interval">
             <Toggle value={bool('backup_enabled')} onChange={v => set('backup_enabled', v)} />
           </Field>
@@ -965,7 +994,17 @@ export default function Settings() {
 
       {/* Ingest */}
       {tab === 'ingest' && (
-        <Section title="Ingest" onSave={ingestSave.save} saving={ingestSave.saving} saved={ingestSave.saved} error={ingestSave.error}>
+        <Section title="Ingest" onSave={ingestSave.save} saving={ingestSave.saving} saved={ingestSave.saved} error={ingestSave.error}
+          help={{
+            title: 'Ingest — How It Works',
+            content: <>
+              <p>The syslog listener accepts <span className="text-gray-300 font-medium">both UDP and TCP</span> on the same configured port — most network devices default to UDP, but some (and any that need delivery guarantees) use TCP.</p>
+              <p><span className="text-amber-500 font-medium">Changing the port requires a service restart</span> to take effect — the listener binds once at process startup.</p>
+              <p>Regardless of ingest volume, a record is only stored if its sender's IP is <span className="text-gray-300 font-medium">present and enabled in the collector registry</span> (Collectors tab) — this settings page controls the listener itself, not what's allowed through.</p>
+              <p>The <span className="text-gray-300 font-medium">journal cap</span> is a safety net, not primary storage — it only fills up when ClickHouse is unreachable and events can't be written directly; once the cap is hit, the oldest journaled files are dropped rather than growing disk usage unbounded.</p>
+            </>,
+          }}
+        >
           <Field label="Syslog port" hint="UDP + TCP port pktLog listens on for incoming syslog messages. Changing requires a service restart.">
             <div className="flex items-center gap-3">
               <NumberInput value={num('syslog_port', 8761)} onChange={v => set('syslog_port', v)} min={1} max={65535} />
@@ -989,7 +1028,16 @@ export default function Settings() {
 
       {/* Auth */}
       {tab === 'auth' && (
-        <Section title="Authentication" onSave={authSave.save} saving={authSave.saving} saved={authSave.saved} error={authSave.error}>
+        <Section title="Authentication" onSave={authSave.save} saving={authSave.saving} saved={authSave.saved} error={authSave.error}
+          help={{
+            title: 'Authentication — How It Works',
+            content: <>
+              <p><span className="text-gray-300 font-medium">Local auth</span> and <span className="text-gray-300 font-medium">SAML SSO</span> aren't mutually exclusive — both can be on at once. Turning Local auth off forces everyone through SSO.</p>
+              <p>SAML users are <span className="text-gray-300 font-medium">auto-provisioned</span> on first successful login — no separate "create user" step.</p>
+              <p>Setting this up: paste Okta's IdP metadata XML to auto-fill the IdP fields, then register the <span className="text-gray-300 font-medium">ACS URL</span> shown here as the Single Sign-On URL in your Okta app. Both the ACS URL and SP metadata link derive from <span className="text-gray-300 font-medium">Base URL</span> on the General tab — set that correctly first.</p>
+            </>,
+          }}
+        >
           <Field label="Local auth" hint="Username/password login using local accounts">
             <Toggle value={bool('auth_local_enabled', true)} onChange={v => set('auth_local_enabled', v)} />
           </Field>
@@ -1059,7 +1107,16 @@ export default function Settings() {
 
       {/* Notifications */}
       {tab === 'notifications' && (
-        <Section title="Notifications" onSave={notifySave.save} saving={notifySave.saving} saved={notifySave.saved} error={notifySave.error}>
+        <Section title="Notifications" onSave={notifySave.save} saving={notifySave.saving} saved={notifySave.saved} error={notifySave.error}
+          help={{
+            title: 'Notifications — How It Works',
+            content: <>
+              <p>These five channels — Slack, Email, PagerDuty, generic Webhook, and TraceCat SOAR — are what an <span className="text-gray-300 font-medium">Alert rule</span> (Alerts page) actually dispatches to when it fires. Enabling a channel here doesn't send anything by itself; it makes the channel available to alert rules.</p>
+              <p><span className="text-gray-300 font-medium">Send Test</span> is a real dispatch, not a dry run — it posts to Slack, sends actual SMTP, fires a PagerDuty event, etc., using whatever's currently filled in above even if unsaved.</p>
+              <p><span className="text-gray-300 font-medium">Webhook payload template</span> is Jinja2 — reference <code className="text-gray-400">alert_name</code>, <code className="text-gray-400">message</code>, <code className="text-gray-400">severity</code>, and <code className="text-gray-400">fired_at</code>.</p>
+            </>,
+          }}
+        >
           {/* Slack */}
           <div className="pt-2 pb-1">
             <p className="text-xs font-semibold text-white uppercase tracking-wider">Slack</p>
@@ -1193,7 +1250,15 @@ export default function Settings() {
 
       {/* Integrations */}
       {tab === 'integrations' && (
-        <Section title="Integrations" onSave={integrationsSave.save} saving={integrationsSave.saving} saved={integrationsSave.saved} error={integrationsSave.error}>
+        <Section title="Integrations" onSave={integrationsSave.save} saving={integrationsSave.saving} saved={integrationsSave.saved} error={integrationsSave.error}
+          help={{
+            title: 'Integrations — How It Works',
+            content: <>
+              <p><span className="text-gray-300 font-medium">SSL/TLS</span> accepts either a combined PFX/P12 file or a separate PEM cert+key pair — the running service auto-detects and loads whichever was uploaded at startup.</p>
+              <p><span className="text-gray-300 font-medium">pktHub Integration</span> is one-directional discovery: copy the Suite Token here into pktHub's App Manager when registering this app, so pktHub can proxy into it with users already signed in. Regenerating the token immediately revokes the old one.</p>
+            </>,
+          }}
+        >
 
           <div className="pt-2 pb-1">
             <p className="text-xs font-semibold text-white uppercase tracking-wider">Lucidchart</p>
@@ -1546,6 +1611,14 @@ function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
 
   return (
     <div>
+      <div className="flex items-center gap-2 mb-1">
+        <p className="text-sm font-semibold text-white">Collector Registry</p>
+        <HelpButton title="Collector Registry — How It Works">
+          <p>This is the <span className="text-gray-300 font-medium">ingest allowlist</span>, not just a labeling table — syslog from a sender IP that's absent here, or present but not marked Enabled, is dropped before storage entirely. It never reaches ClickHouse, and won't show up unlabeled either; it simply doesn't exist as far as the rest of the app is concerned.</p>
+          <p>An unregistered sender instead fires an "Unknown collector" alert with a one-click registration link, so nothing silently vanishes without at least a notification.</p>
+          <p>CSV import/export and the downloadable template are for bulk provisioning — useful when onboarding many syslog sources at once instead of one by one.</p>
+        </HelpButton>
+      </div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-gray-500">
           Gateway for what's allowed to persist — a device can be sending syslog data on the wire,
@@ -1938,6 +2011,14 @@ function UsersTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-semibold text-white">Users</p>
+        <HelpButton title="Users — How It Works">
+          <p>Three roles: <span className="text-gray-300 font-medium">admin</span> (full access, including this Users tab and all Settings), <span className="text-gray-300 font-medium">analyst</span> (read access plus export), and <span className="text-gray-300 font-medium">viewer</span> (read-only, no export).</p>
+          <p>This tab only manages <span className="text-gray-300 font-medium">local accounts</span> — SAML/Okta SSO users are auto-provisioned on first login and managed in Okta itself, not here.</p>
+          <p><span className="text-gray-300 font-medium">Deactivate</span> blocks login immediately without deleting the account or its history — prefer it over Delete for someone leaving temporarily, since Delete is permanent.</p>
+        </HelpButton>
+      </div>
       <div className="flex items-center gap-3 flex-wrap">
         <p className="text-xs text-gray-500">Local accounts only — Okta SSO users are managed in Okta</p>
         <div className="flex items-center gap-2 ml-auto">

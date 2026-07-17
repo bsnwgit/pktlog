@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, AlertRule, AlertEvent, getToken } from '../api/client'
 import { useWebSocket, type WsMessage, type AlertFiredPayload } from '../hooks/useWebSocket'
 import { useTimezone } from '../hooks/useTimezone'
+import HelpButton from '../components/HelpButton'
 
 // ── Time range ────────────────────────────────────────────────────────────────
 
@@ -1048,7 +1049,16 @@ export default function Alerts() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Alerts</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-white">Alerts</h1>
+            <HelpButton title="Alerts — How It Works">
+              <p>Rule types span two groups: <span className="text-gray-300 font-medium">Volume</span> (threshold, rate spike, top talker) and <span className="text-gray-300 font-medium">Infrastructure</span> (data gap, new host, ingest rate low, ClickHouse table size).</p>
+              <p><span className="text-gray-300 font-medium">Auto-resolve</span> means an open alert closes itself the next time its rule evaluates and the condition no longer holds — no need to manually clear it.</p>
+              <p><span className="text-gray-300 font-medium">Investigate</span> deep-links into Syslog Explorer, pre-filtered to the specific collector/host/time range that triggered the alert.</p>
+              <p>Rules can be bulk-provisioned via CSV — Export CSV to snapshot current rules, download the template for the expected columns, then Import CSV to create many at once.</p>
+              <p className="text-gray-500">What actually gets notified (Slack/Email/PagerDuty/Webhook/TraceCat) when a rule fires is configured separately in Settings → Notifications.</p>
+            </HelpButton>
+          </div>
           <p className="text-sm text-white mt-0.5">
             {(() => {
               const active   = events.filter(e => !e.resolved_at).length
