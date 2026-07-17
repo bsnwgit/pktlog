@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS pktlog.syslog_events
 
     source_ip       String,
     source_name     String,
+    dest_ip         String,
 
     facility        UInt8,
     facility_name   LowCardinality(String),
