@@ -120,14 +120,56 @@ async def auth_config(db: aiosqlite.Connection = Depends(get_db)):
         local_enabled = _json.loads(row[0]) if row else True
     except Exception:
         local_enabled = True
-    # Safety: never disable local auth if no SSO is configured
-    if not saml_settings:
-        local_enabled = True
 
     return {
         "saml_enabled":  saml_settings is not None,
         "local_enabled": bool(local_enabled),
     }
+
+
+@router.post("/auto-login", response_model=TokenResponse)
+async def auto_login(response: Response, db: aiosqlite.Connection = Depends(get_db)):
+    """Issue a session for the default admin account when every auth method is disabled.
+
+    Only usable when both local auth and SAML SSO are off — otherwise this would be
+    an unauthenticated backdoor. The Login page calls this instead of rendering a
+    form when /config reports both methods disabled.
+    """
+    import json as _json
+    saml_settings = await saml_auth.load_saml_settings(db)
+    async with db.execute("SELECT value FROM settings WHERE key = 'auth_local_enabled'") as cur:
+        row = await cur.fetchone()
+    try:
+        local_enabled = _json.loads(row[0]) if row else True
+    except Exception:
+        local_enabled = True
+    if local_enabled or saml_settings:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Auth is enabled; auto-login not available")
+
+    async with db.execute(
+        "SELECT id, role, is_active FROM users WHERE is_default_admin = 1 AND is_active = 1 LIMIT 1"
+    ) as cur:
+        user = await cur.fetchone()
+    if not user:
+        # No user explicitly flagged (or the flagged account was deactivated/deleted) —
+        # fall back to the first active admin so this never dead-ends into a lockout.
+        async with db.execute(
+            "SELECT id, role, is_active FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id ASC LIMIT 1"
+        ) as cur:
+            user = await cur.fetchone()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No admin account available")
+
+    pktlog_access = create_access_token(user["id"], user["role"])
+    pktlog_refresh = create_refresh_token(user["id"])
+    response.set_cookie(
+        key="refresh_token",
+        value=pktlog_refresh,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
+    )
+    return TokenResponse(access_token=pktlog_access, role=user["role"])
 
 
 # ── SAML 2.0 ──────────────────────────────────────────────────────────────────

@@ -12,10 +12,11 @@ The user must say "mark complete" or click the Mark Complete button. Claude neve
 **RULE 2 — NEVER WRITE CODE OR MAKE FILE CHANGES WITHOUT EXPLICIT USER APPROVAL.**
 "Let's work on X" = discussion only. Do not write a single line of code until the user says to proceed. Always discuss and plan first. Wait for explicit go-ahead.
 
-**RULE 3 — NEVER DEPLOY WITHOUT BEING TOLD TO.**
-Do not run the deploy script unless the user explicitly says "deploy."
-
 Violating these rules is unacceptable regardless of context, intent, or how obvious the action seems.
+
+---
+
+**Deploying:** deploy is a normal part of the edit → verify → deploy → test loop, same as every other pkt* app — no magic word required each time. (This project used to require the user to say "deploy" explicitly before every push; that gate was removed 2026-07-18 at the user's explicit, repeated request because it kept causing friction. Rules 1 and 2 above are unaffected — code changes still need approval, todos still need explicit completion.)
 
 ---
 
@@ -53,10 +54,10 @@ pktLog is a syslog ingest management and UI platform. It receives syslog data, s
 - Venv: `/mnt/software/pktlog/venv`
 - Config: `/mnt/software/pktlog/config.yaml`
 - HTTP port: **8768** (HTTPS)
-- Syslog ingest port: **8761** (UDP + TCP)
+- Syslog ingest port: **5514** (UDP + TCP) — current code default (`config.example.yaml`); was 8761 before commit `47f98fd`, confirm this host's `config.yaml`/`PKTLOG_SYSLOG_PORT` actually matches if in doubt
 - Systemd: `/etc/systemd/system/pktlog.service`
 - DB: `/mnt/software/pktlog/pktlog.db` (SQLite — users, settings, alert rules)
-- Log data: ClickHouse `pktlog.syslog_events`
+- Log data: ClickHouse `pktlog.syslog_events` — verify against this host's actual `config.yaml`/`systemctl cat pktlog`; the code default changed from 8761 to 5514 (commit `47f98fd`) and an older live install may predate that change
 - Ingest journal: `/mnt/software/pktlog/ingest_journal/`
 
 ---
@@ -166,8 +167,17 @@ conn.commit()
 - **Collector registry is a hard ingest gate, not just enrichment.** `app/ingest/normalizer.py`'s `enrich()` returns `None` (record dropped, never reaches the writer) for any `collector_ip` not present and `enabled=1` in `collector_registry`. A device can be sending syslog on the wire, but nothing persists until it's added under Settings → Collectors and marked enabled. Unregistered senders instead fire a `new_host`/"Unknown collector" alert with a one-click "Register collector →" link.
 - **RFC 3164 timestamps are interpreted in the app's configured device timezone, not assumed UTC.** RFC 3164 has no timezone marker; many real devices (UniFi APs/gateways observed in practice) log in local time. `_parse_ts_3164()` (app/ingest/parser.py) localizes the parsed naive datetime using the `timezone` setting (Settings → General — same value used for display) before converting to UTC for storage. Getting this wrong silently shifts every such event's `timestamp` column by the zone offset — `received_at` (always server-side `datetime.now(utc)`) is unaffected either way and is the reliable field to sanity-check against if timestamps ever look off again.
 - **Parser also handles headerless lines.** Some devices send RFC-3164-shaped lines with no `<PRI>` at all (e.g. UniFi CEF security events: `TIMESTAMP HOSTNAME CEF:0|...`), and some send no syslog header whatsoever (e.g. UniFi AP kernel/wireless-driver debug lines: `{tag} [uptime] ...`). Both are recognized and stripped down to a real `message` instead of falling through to "unparseable" (which previously left `message == raw` and dropped `source_ip`/`timestamp` entirely).
-- Storage: ClickHouse `pktlog.syslog_events` (17 columns), SQLite for app config/auth/alerts/collector_registry
+- Storage: ClickHouse `pktlog.syslog_events` (18 columns, incl. `dest_ip` added `b1349c5`), SQLite for app config/auth/alerts/collector_registry/user_api_keys/integrations
 - Frontend: React app with Login, Dashboard, Alerts, Settings, Users, Logs, Syslog Explorer pages — all timestamp displays use the configured `timezone` setting via `frontend/src/hooks/useTimezone.ts`, not the browser's local zone
+- **`dest_ip`** (`b1349c5`): parser lifts a `DST=<ip>` KV pair (netfilter/firewall-style log lines) into its own field, separate from `source_ip`/`collector_ip`. Only populated for lines that embed `DST=` — most syslog lines have no destination-IP concept, so it's blank (not broken) for those. Filterable/displayed in Syslog Explorer.
+- **IP intelligence / reputation lookup** (`826871c`): click any public IP anywhere in the UI (`frontend/src/components/IpLink.tsx`) to look it up via ipinfo.io + AbuseIPDB, `GET /api/ip-info/{ip}`. Uses **per-user** API keys stored via `/api/user-api-keys` (Settings → User Keys tab), not a global app key. Three providers are supported for key storage/testing (AbuseIPDB, ipinfo.io, IPQualityScore — `app/api/user_api_keys.py`), but the actual lookup endpoint only calls ipinfo.io + AbuseIPDB; an IPQualityScore key can be saved/tested but currently does nothing else.
+- **AI Assistant** (Claude chat, pre-existing but easy to miss): floating button + slide-in drawer on every page (`frontend/src/components/AiAssistant.tsx`), `POST /api/ai/chat`. Requires an Anthropic API key in Settings → Security → AI Assistant; model choice (Haiku/Sonnet/Opus) also configured there.
+- **App-wide contextual help** (`a0831da`): "?" `HelpButton` components on Dashboard, Alerts, Logs, SyslogExplorer, and several Settings sections (Auth, Suite Integration, AI Assistant, Notifications, etc.) — 24 usages as of this writing.
+- **"Suite Integration" label** (renamed from "pktHub Integration", `065d47f`) lives at Settings → Security → Suite Integration, not a separate top-level "Integrations" tab — the top-level Settings tabs are General / Security (Users, Auth, Suite Integration, AI Assistant, SSL-TLS) / Data (Storage, Backups) / Notifications / User Keys / Collectors / Ingest. There is no top-level "Integrations" settings tab.
+- **Hub-managed direct-UI lock** (pre-existing, previously undocumented here): pktHub can call `POST /api/suite/direct-access {"locked": true}` (authenticated via `X-Suite-Token`) to force all direct browser access into a redirect to a `hub_redirect_url` (set at Settings → Security → Suite Integration, or via `PATCH /api/suite/hub-redirect-url`). A heartbeat (`lock_heartbeat_at`, refreshed on every suite-token-authenticated request) auto-clears the lock if it goes >5 min stale or if pktHub is unreachable at app startup — so a lock can't permanently strand admins out of the direct UI if pktHub disappears. See the `_direct_access_lock` middleware and lifespan startup failsafe in `app/main.py`.
+- **Auth "auto-login" fallback**: if *both* Local auth and SAML SSO are turned off (Settings → Security → Auth), the Login page skips the form entirely and auto-logs in as the designated default admin (`users.is_default_admin`, falling back to the oldest active admin) via `POST /api/auth/auto-login` — intentional for trusted-network-only setups, but means turning off all auth methods removes the login prompt for anyone who can reach the UI. Not something to do casually.
+- **Outbound "Integrations" API** (`app/api/integrations.py`, migration `008_integrations.sql`): CRUD for named connections *from* pktlog *to* sibling pkt* apps (pktipam/pktflow/pktsnmp/pktpcap/pktwifi/pkthub). Backend/DB only — no frontend tab surfaces it yet, and per its own docstring "no consumer feature reads from this table yet." Distinct from `/api/suite/*`, which is the inbound side (pktHub calling into pktlog).
+- Alert notification channels are actually **six**: `inapp`, `slack`, `email` (SMTP), `pagerduty`, `webhook`, `tracecat` (TraceCat SOAR) — all configured on the Notifications settings tab, all dispatched from `app/alerts/engine.py::_dispatch`.
 
 **Known gotcha — deployed systemd unit can silently drift from the repo template.** `pktlog.service` in the repo runs `ExecStart=__INSTALL_DIR__/start.sh` (so SSL auto-detect and any future `start.sh` changes take effect), but an *already-installed* `/etc/systemd/system/pktlog.service` on a live host is a separate file that only gets updated by re-running the relevant part of `install.sh` or reinstalling the unit — editing `start.sh` alone has zero effect if the installed unit bypasses it with a direct `uvicorn ...` `ExecStart`. If a "backend fix" doesn't seem to take effect after a restart, compare `systemctl cat pktlog | grep ExecStart` against the repo's `pktlog.service` before assuming the code is wrong.
 

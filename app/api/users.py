@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     email: str
     role: str
     is_active: bool
+    is_default_admin: bool = False
     created_at: str
     last_login: Optional[str]
     has_password: bool = True
@@ -92,7 +93,8 @@ async def change_my_password(
 @router.get("/", response_model=list[UserOut])
 async def list_users(_: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
     async with db.execute(
-        "SELECT id, username, email, role, is_active, created_at, last_login FROM users ORDER BY username"
+        "SELECT id, username, email, role, is_active, is_default_admin, created_at, last_login "
+        "FROM users ORDER BY username"
     ) as cur:
         rows = await cur.fetchall()
     return [_user_to_dict(r) for r in rows]
@@ -131,7 +133,7 @@ async def update_user(
     await db.execute(f"UPDATE users SET {update_fields} WHERE id=?", params)
     await db.commit()
     async with db.execute(
-        "SELECT id, username, email, role, is_active, created_at, last_login FROM users WHERE id=?",
+        "SELECT id, username, email, role, is_active, is_default_admin, created_at, last_login FROM users WHERE id=?",
         (user_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -149,6 +151,24 @@ async def deactivate_user(user_id: int, _: AdminUser, db: aiosqlite.Connection =
 @router.patch("/{user_id}/activate", status_code=status.HTTP_204_NO_CONTENT)
 async def activate_user(user_id: int, _: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
     await db.execute("UPDATE users SET is_active = 1 WHERE id = ?", (user_id,))
+    await db.commit()
+
+
+@router.patch("/{user_id}/set-default-admin", status_code=status.HTTP_204_NO_CONTENT)
+async def set_default_admin(user_id: int, _: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
+    """Mark this user as the account auto-logged-in when every auth method is disabled.
+
+    Exactly one user can hold the flag at a time — setting it here clears it from
+    every other user in the same transaction (radio-button semantics, not a toggle).
+    """
+    async with db.execute("SELECT role, is_active FROM users WHERE id = ?", (user_id,)) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    if row["role"] != "admin" or not row["is_active"]:
+        raise HTTPException(status_code=400, detail="Default admin must be an active admin account")
+    await db.execute("UPDATE users SET is_default_admin = 0")
+    await db.execute("UPDATE users SET is_default_admin = 1 WHERE id = ?", (user_id,))
     await db.commit()
 
 
