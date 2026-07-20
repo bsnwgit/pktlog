@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -19,6 +20,7 @@ from pathlib import Path
 import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.config import get_settings
 from app.dependencies import require_admin
@@ -26,6 +28,15 @@ from app.storage.factory import get_storage
 
 log = logging.getLogger("pktlog.system")
 router = APIRouter()
+
+
+def _config_file_path() -> Path:
+    """Locate the on-disk config.yaml — same candidates used elsewhere in this file."""
+    cfg = get_settings()
+    for candidate in [Path("config.yaml"), Path(cfg.install_dir) / "config.yaml"]:
+        if candidate.exists():
+            return candidate
+    raise HTTPException(500, "config.yaml not found")
 
 
 async def _delayed_restart(delay: float = 1.5) -> None:
@@ -566,3 +577,39 @@ async def restart_service() -> dict:
     log.warning("Service restart requested via API")
     asyncio.create_task(_delayed_restart())
     return {"status": "restarting", "message": "Service will restart in ~2 seconds"}
+
+
+class PortUpdate(BaseModel):
+    port: int
+
+
+@router.get("/port", dependencies=[Depends(require_admin)])
+async def get_port() -> dict:
+    """
+    The port pktLog listens on. Lives in config.yaml (startup config, read
+    before the DB connects) rather than the SQLite-backed settings table —
+    see app/config.py. start.sh reads this same field to pick the bind port.
+    """
+    return {"port": get_settings().port}
+
+
+@router.post("/port", dependencies=[Depends(require_admin)])
+async def set_port(body: PortUpdate) -> dict:
+    """
+    Update the listen port in config.yaml. Takes effect on the next service
+    restart — this only writes the file, it doesn't restart anything itself.
+    """
+    if not (1 <= body.port <= 65535):
+        raise HTTPException(400, "Port must be between 1 and 65535")
+
+    path = _config_file_path()
+    text = path.read_text()
+    new_line = f"port: {body.port}"
+    if re.search(r"(?m)^port:\s*\d+", text):
+        text = re.sub(r"(?m)^port:\s*\d+", new_line, text, count=1)
+    else:
+        text = text.rstrip("\n") + f"\n{new_line}\n"
+    path.write_text(text)
+
+    log.warning(f"Listen port changed to {body.port} in config.yaml — restart required to take effect")
+    return {"port": body.port, "message": "Saved — restart the service to apply"}

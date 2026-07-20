@@ -5,17 +5,25 @@
 # invoked manually outside systemd, e.g. for local development.
 #
 # Auto-detects $PKTLOG_INSTALL_DIR/ssl/server.crt + server.key on startup.
-# To enable HTTPS: upload cert/key via Settings → Integrations → SSL / TLS, then restart.
+# To enable HTTPS: upload cert/key via Settings → Security → SSL / TLS, then restart.
 # To disable HTTPS: remove the cert via Settings (or rm $PKTLOG_INSTALL_DIR/ssl/server.*), then restart.
 #
-# Override defaults with env vars, e.g.:
+# Port comes from config.yaml's `port:` field by default (Settings → General
+# → Port writes there) — set $PKTLOG_PORT to override without touching it,
+# e.g. for one-off local dev:
 #   PKTLOG_INSTALL_DIR=/opt/pktlog PKTLOG_PORT=8768 bash start.sh
 
 set -euo pipefail
 
 INSTALL_DIR="${PKTLOG_INSTALL_DIR:-/opt/pktlog}"
 export PKTLOG_INSTALL_DIR="$INSTALL_DIR"
-PORT="${PKTLOG_PORT:-8768}"
+CONFIG_YAML="$INSTALL_DIR/config.yaml"
+if [ -n "${PKTLOG_PORT:-}" ]; then
+    PORT="$PKTLOG_PORT"
+elif [ -f "$CONFIG_YAML" ]; then
+    PORT="$(grep -E '^port:' "$CONFIG_YAML" | head -1 | sed -E 's/^port:[[:space:]]*([0-9]+).*/\1/')"
+fi
+PORT="${PORT:-8768}"
 WORKERS="${PKTLOG_WORKERS:-2}"
 
 SSL_CERT="$INSTALL_DIR/ssl/server.crt"

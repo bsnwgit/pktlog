@@ -95,6 +95,12 @@ export const api = {
     }
     return res.json() as Promise<{ access_token: string; role: string }>
   },
+  // Deliberately bypasses request() for the same reason as login() above.
+  autoLogin: async () => {
+    const res = await fetch('/api/auth/auto-login', { method: 'POST' })
+    if (!res.ok) throw new Error('Auto-login not available')
+    return res.json() as Promise<{ access_token: string; role: string }>
+  },
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   // ── Syslog ────────────────────────────────────────────────────────────────
@@ -175,6 +181,7 @@ export const api = {
   deleteUser: (id: number) => request(`/users/${id}`, { method: 'DELETE' }),
   activateUser: (id: number) => request(`/users/${id}/activate`, { method: 'PATCH' }),
   deactivateUser: (id: number) => request(`/users/${id}/deactivate`, { method: 'PATCH' }),
+  setDefaultAdmin: (id: number) => request(`/users/${id}/set-default-admin`, { method: 'PATCH' }),
   resetUserPassword: (id: number, newPassword: string) =>
     request(`/users/${id}/reset-password`, { method: 'PATCH', body: JSON.stringify({ new_password: newPassword }) }),
   changeMyPassword: (currentPassword: string, newPassword: string) =>
@@ -188,6 +195,13 @@ export const api = {
 
   restartService: () =>
     request<{ status: string; message: string }>('/system/restart', { method: 'POST' }),
+  getPort: () =>
+    request<{ port: number }>('/system/port'),
+  setPort: (port: number) =>
+    request<{ port: number; message: string }>('/system/port', {
+      method: 'POST',
+      body: JSON.stringify({ port }),
+    }),
   runCleanup: () =>
     request<{
       flows_eligible: number
@@ -474,6 +488,7 @@ export interface User {
   email: string
   role: string
   is_active: boolean
+  is_default_admin: boolean
   created_at: string
   last_login: string | null
   has_password: boolean
