@@ -1,9 +1,10 @@
 #!/bin/bash
 # pktLog install script — Ubuntu Server 22.04/24.04 LTS
 # Usage: bash install.sh
-# Prompts for the install directory (default /opt/pktlog) when run interactively.
-# Override defaults with env vars to skip the prompt, e.g.:
-#   PKTLOG_INSTALL_DIR=/opt/pktlog PKTLOG_SERVICE_USER=pktlog bash install.sh
+# Prompts for the install directory (default /opt/pktlog) and port (default
+# 8768) when run interactively.
+# Override defaults with env vars to skip the prompts, e.g.:
+#   PKTLOG_INSTALL_DIR=/opt/pktlog PKTLOG_SERVICE_USER=pktlog PKTLOG_PORT=8768 bash install.sh
 
 set -euo pipefail
 
@@ -12,6 +13,12 @@ if [ -z "${PKTLOG_INSTALL_DIR:-}" ] && [ -t 0 ]; then
     INSTALL_DIR="${INSTALL_DIR_INPUT:-/opt/pktlog}"
 else
     INSTALL_DIR="${PKTLOG_INSTALL_DIR:-/opt/pktlog}"
+fi
+if [ -z "${PKTLOG_PORT:-}" ] && [ -t 0 ]; then
+    read -rp "Port [8768]: " PORT_INPUT
+    PORT="${PORT_INPUT:-8768}"
+else
+    PORT="${PKTLOG_PORT:-8768}"
 fi
 LOG_DIR="${PKTLOG_LOG_DIR:-$INSTALL_DIR/logs}"
 SERVICE_USER="${PKTLOG_SERVICE_USER:-$(whoami)}"
@@ -24,6 +31,7 @@ LOCAL_IP="$(hostname -I | awk '{print $1}')"
 echo "=== pktLog Installer ==="
 echo "Install dir: $INSTALL_DIR"
 echo "Service user: $SERVICE_USER"
+echo "Port: $PORT"
 echo ""
 
 # ── 1. System packages ────────────────────────────────────────────────────────
@@ -100,6 +108,7 @@ if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
     # Generate a random secret key
     SECRET=$(openssl rand -hex 32)
     sed -i "s/CHANGE_ME_generate_with_openssl_rand_hex_32/$SECRET/" "$INSTALL_DIR/config.yaml"
+    sed -i "s/^port: 8768/port: $PORT/" "$INSTALL_DIR/config.yaml"
     # Pin install_dir explicitly (app/config.py derives every other path —
     # db, logs, ingest journal, ssl, backups — from this by default).
     echo "install_dir: \"$INSTALL_DIR\"" >> "$INSTALL_DIR/config.yaml"
@@ -128,7 +137,7 @@ async def setup():
     async with aiosqlite.connect(get_settings().db_path) as db:
         hashed = hash_password('$ADMIN_PASS')
         await db.execute(
-            "INSERT OR IGNORE INTO users (username, email, hashed_password, role) VALUES (?,?,?,?)",
+            "INSERT OR IGNORE INTO users (username, email, hashed_password, role, is_default_admin) VALUES (?,?,?,?,1)",
             ('admin', 'admin@pktlog.local', hashed, 'admin')
         )
 
@@ -142,7 +151,7 @@ async def setup():
             )
             await db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES ('base_url', ?)",
-                (json.dumps(f'http://{local_ip}:8768'),)
+                (json.dumps(f'http://{local_ip}:$PORT'),)
             )
 
         await db.commit()
@@ -191,7 +200,7 @@ echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║              pktLog installed successfully!              ║"
 echo "╠══════════════════════════════════════════════════════════╣"
-printf "║  URL:           http://%-35s║\n" "$LOCAL_IP:8768"
+printf "║  URL:           http://%-35s║\n" "$LOCAL_IP:$PORT"
 echo "║  Username:      admin                                     ║"
 printf "║  Password:      %-43s║\n" "$ADMIN_PASS"
 echo "║                                                            ║"
