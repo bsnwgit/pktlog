@@ -13,7 +13,7 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
 }
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, user } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -24,6 +24,12 @@ export default function Login() {
   const [samlEnabled, setSamlEnabled]   = useState(false)
   const [localEnabled, setLocalEnabled] = useState(true)
   const [samlLoading, setSamlLoading]   = useState(false)
+
+  // If auto-login (all auth methods disabled) already established a session
+  // in the background, leave immediately instead of showing a login form.
+  useEffect(() => {
+    if (user) navigate('/', { replace: true })
+  }, [user])
 
   // Check SSO error from redirect and fetch auth config
   useEffect(() => {
