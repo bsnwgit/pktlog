@@ -42,7 +42,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then(data => {
+      .then(async data => {
+        if (!data) {
+          // No session yet — if every auth method is disabled, log straight
+          // in as the default admin instead of showing the login form.
+          const config = await fetch('/api/auth/config').then(r => r.ok ? r.json() : null).catch(() => null)
+          if (config && !config.local_enabled && !config.saml_enabled) {
+            data = await api.autoLogin().catch(() => null)
+          }
+        }
         if (data) {
           setToken(data.access_token, data.role)
           return api.getMe()
