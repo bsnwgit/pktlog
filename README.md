@@ -1,5 +1,9 @@
 # pktLog
 
+<p align="center">
+  <img src="frontend/public/logos/lockup-256h.png" alt="pktLog" height="64">
+</p>
+
 Syslog ingest management and visualization platform. Receives syslog data over UDP/TCP, stores events in ClickHouse, and provides a React UI for search, alerting, and reporting.
 
 Part of the **pktSuite** platform (SSO with pktHub/pktFlow via a shared `suite_token`).
