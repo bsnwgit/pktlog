@@ -28,6 +28,8 @@ from app.api import alerts as alerts_router
 from app.api import ws as ws_router
 from app.api import user_api_keys as user_api_keys_router
 from app.api import ip_info as ip_info_router
+from app.api import ai as ai_router
+from app.api import integrations as integrations_router
 
 settings = get_settings()
 log = logging.getLogger("pktlog")
@@ -203,6 +205,8 @@ app.include_router(alerts_router.router,   prefix="/api/alerts",   tags=["alerts
 app.include_router(ws_router.router,       prefix="/api/ws",       tags=["websocket"])
 app.include_router(user_api_keys_router.router, prefix="/api/user-api-keys", tags=["user-api-keys"])
 app.include_router(ip_info_router.router,       prefix="/api/ip-info",       tags=["ip-info"])
+app.include_router(ai_router.router,            prefix="/api/ai",            tags=["ai"])
+app.include_router(integrations_router.router,  prefix="/api/integrations",  tags=["integrations"])
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

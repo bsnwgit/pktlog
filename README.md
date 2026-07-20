@@ -15,23 +15,31 @@ Requires a fresh Ubuntu Server 22.04/24.04 LTS host with `sudo` access, and Node
 git clone https://github.com/bsnwgit/pktlog.git
 cd pktlog
 
-# 2. Run the installer — system packages, ClickHouse, Python deps, schema,
-#    config.yaml + secret key, admin user, systemd service (installed + started)
+# 2. Install Node.js 20.x LTS first if it isn't already present (see
+#    Requirements below) — install.sh builds the frontend automatically
+#    when npm is on PATH, and only falls back to a manual build otherwise.
+
+# 3. Run the installer. Interactively, it prompts for the install directory
+#    (default /opt/pktlog) and the app port (default 8768); it then handles
+#    system packages, ClickHouse, Python deps, ClickHouse schema, config.yaml
+#    + secret key, admin user (random password), one seeded collector entry
+#    (this host's own IP), the frontend build (if npm is present), and the
+#    systemd service (installed + started).
 bash install.sh
-# Prints the admin password at the end — save it, it is not shown again.
+# Prints the admin username/password at the end — save it, it is not shown again.
 
-# 3. Build and deploy the frontend (install.sh does not do this — see
-#    Installation § 8 below for why it's a separate step)
-cd frontend && npm install && npm run build && cd ..
-sudo cp -r frontend/dist /opt/pktlog/frontend/dist
-sudo systemctl restart pktlog
+# 4. If npm was NOT found during install, install.sh prints the exact
+#    fallback commands to build the frontend manually and restart the
+#    service — see Installation § 8 below.
 
-# 4. Open the firewall (adjust if PKTLOG_INSTALL_DIR/port differ)
+# 5. Open the firewall (adjust if you chose a different port, or
+#    PKTLOG_SYSLOG_PORT differs from the 5514 default)
 sudo ufw allow 8768/tcp
 sudo ufw allow 5514/tcp
 sudo ufw allow 5514/udp
 
-# 5. Open http://<server-ip>:8768 and log in with the admin credentials from step 2
+# 6. Open http://<server-ip>:<port> and log in with the admin credentials
+#    from step 3
 ```
 
 For a fully manual walkthrough of what `install.sh` does (e.g. to customize the install path or run steps individually), see [Installation](#installation).
@@ -101,11 +109,37 @@ Both Application Logs and Syslog Explorer paginate server-side (50/page and 100/
 
 ### Alert rules bulk import/export
 
-Alerts → Rules has Export CSV / Import CSV / template-download buttons alongside "+ New rule", for provisioning many rules at once. Columns: `name, description, rule_type, conditions, time_window_min, severity, channels, cooldown_min, enabled` — `conditions` round-trips as a JSON object string (shape depends on `rule_type`), `channels` as a comma-separated column (e.g. `inapp,slack`).
+Alerts → Rules has Export CSV / Import CSV / template-download buttons alongside "+ New rule", for provisioning many rules at once. Columns: `name, description, rule_type, conditions, time_window_min, severity, channels, cooldown_min, enabled` — `conditions` round-trips as a JSON object string (shape depends on `rule_type`), `channels` as a comma-separated column drawn from the six supported values: `inapp, slack, email, pagerduty, webhook, tracecat` (e.g. `inapp,slack`).
 
 ### Alert Investigate button
 
 Every active/history alert card has an **Investigate ↗** button that jumps straight to Syslog Explorer, pre-filtered to the alert's `collector_ip` (a new `collector_ip` search param/filter, distinct from the existing name-based `collector_name` filter) and a time window around when it fired. The "Unknown collector" registration link (Settings → Collectors, pre-filled IP) still appears alongside it for `new_host` alerts.
+
+### `dest_ip` — destination IP from netfilter-style logs
+
+Alongside `source_ip`, the syslog schema has a `dest_ip` column parsed from a `DST=<ip>` key/value pair embedded in the message body (firewall/netfilter-style log lines). It's a separate concept from `collector_ip`/`source_ip` and shows up as its own column and filter in Syslog Explorer. Most syslog lines have no destination-IP concept at all, so `dest_ip` is blank for them — that's expected, not a parsing failure.
+
+### IP intelligence / reputation lookup
+
+Every public IP address shown anywhere in the UI (Syslog Explorer, Dashboard, Alerts) is clickable — it opens a lookup panel combining [ipinfo.io](https://ipinfo.io) (geolocation/ASN/hostname) and [AbuseIPDB](https://www.abuseipdb.com) (abuse confidence score, report history) via `GET /api/ip-info/{ip}`. Private/loopback/link-local/multicast addresses aren't clickable — external providers have nothing useful to say about them.
+
+This is **per-user**, not a global app setting: each user adds their own API keys under **Settings → User Keys**, and lookups run under the logged-in user's own keys/quota. Three providers can have a key stored and tested there (AbuseIPDB, ipinfo.io, IPQualityScore), but only ipinfo.io and AbuseIPDB are actually used by the lookup panel today — an IPQualityScore key can be saved and tested but isn't consumed anywhere yet.
+
+### AI Assistant
+
+A floating chat button (bottom corner, every page) opens a slide-in drawer backed by Claude (`POST /api/ai/chat`) — ask it to help interpret log volume, severity/facility patterns, or investigate an alert; it receives the current page's context (recent events, collector status, alert summaries) alongside the question. Requires an Anthropic API key configured at **Settings → Security → AI Assistant**, where the model (Haiku / Sonnet / Opus) is also selectable. Until a key is set, the assistant reports itself as not configured rather than failing silently.
+
+### Contextual help throughout the UI
+
+Small "?" buttons next to section headers (Dashboard, Alerts, Logs, Syslog Explorer, and most Settings sections — Auth, Suite Integration, AI Assistant, Notifications, Data, etc.) open a short explainer of how that feature actually behaves — e.g. what a toggle does, what a bulk-import column means, what "Send Test" actually sends. Worth checking before assuming default behavior when a setting's effect isn't obvious from its label alone.
+
+### Notification channels
+
+Alert rules can dispatch to **six** channels, each configured under **Settings → Notifications**: in-app (`inapp`, the alert itself), Slack (incoming webhook), Email (SMTP), PagerDuty (Events API v2), a generic Webhook (Jinja2-templated payload), and TraceCat SOAR. Each channel has a real "Send Test" button that performs an actual dispatch (real Slack post, real SMTP send, etc.) using whatever's currently filled in, even if unsaved — not a dry run.
+
+### User roles
+
+Three roles: `admin` (full access, incl. user management), `analyst` (read + export, most write actions), `viewer` (read-only). When a request arrives via a pktHub-issued `suite_token`/SSO session, pktHub's own roles map onto these: `admin`→`admin`, `analyst`→`analyst`, and pktHub's `viewer`→pktlog's `analyst` (pktlog's own SSO role map treats "viewer" over SSO as read-only-but-still-useful rather than fully locked down — see `_SUITE_ROLE_MAP` in `app/dependencies.py`). A **locally-created** `viewer` user is genuinely read-only.
 
 ---
 
@@ -146,7 +180,7 @@ React 18, TypeScript, Vite, Tailwind CSS, Recharts.
 
 ## Installation
 
-`install.sh` (see [Quick Start](#quick-start)) automates everything below except **step 8 (build the frontend)** and **step 10 (open the firewall)** — those are always manual. This section is the full manual walkthrough — useful to customize the install, run steps individually, or understand what the script does.
+`install.sh` (see [Quick Start](#quick-start)) automates everything below, **including step 8 (build the frontend)** as long as `npm` is already on `PATH` when it runs — it falls back to printing the manual build commands only if `npm` isn't found. **Step 11 (open the firewall)** is always manual. This section is the full manual walkthrough — useful to customize the install, run steps individually, or understand what the script does.
 
 ### 1. Clone the repository
 
@@ -235,11 +269,13 @@ openssl rand -hex 32   # use this as secret_key
 | `cors_origins` | `["*"]` | Restrict to your dashboard origin in production |
 | `log_file` | `/opt/pktlog/logs/pktlog.log` | Log path |
 
-The initial `admin` user is created directly in SQLite (see step 8's Python snippet, or use `seed_admin.py` after install) — there is no `admin_user`/`admin_password` config.yaml field.
+The initial `admin` user is created directly in SQLite (see step 9's Python snippet, or use `seed_admin.py` after install) — there is no `admin_user`/`admin_password` config.yaml field.
 
 ### 8. Build the frontend
 
 Requires Node.js 20.x LTS. The frontend must be built on Linux — not on Windows (Windows `node_modules` lacks the Linux rollup native binary).
+
+`install.sh` does this step for you automatically if `npm` is already installed when it runs — the commands below are only needed if you're doing a fully manual install, or if `npm` wasn't present at install time (in which case `install.sh` prints these same commands as a fallback and leaves the web UI returning `{"detail":"Not Found"}` until you run them):
 
 ```bash
 cp -r frontend /tmp/pktlog-fe
@@ -277,6 +313,8 @@ PYEOF
 ```
 
 Replace `CHANGE_ME` with a real password before running this. `init_db()` also applies all `migrations/*.sql` files (idempotent — safe to call on every startup, which is what `app/main.py` does).
+
+`install.sh` itself does more than this minimal snippet: it generates a random admin password (`openssl rand -base64 12`, printed once at the end of the run — this snippet's hardcoded password is only for a fully manual/scripted install), flags that account as the **default admin** (`is_default_admin` — see [User roles](#user-roles) and the auto-login note under Security below), seeds one `collector_registry` row for the install host's own detected IP (so there's at least one working collector out of the box instead of an empty registry), and stores a `base_url` setting derived from that IP and the chosen port (used to build SAML ACS/metadata URLs on the Auth settings tab).
 
 ### 10. Install and start the systemd service
 
@@ -316,7 +354,7 @@ Log in at `http://<server-ip>:8768` (or `https://` if SSL is configured) with th
 
 pktLog auto-detects SSL on startup. If `<INSTALL_DIR>/ssl/server.crt` and `server.key` exist, it starts in HTTPS mode; otherwise HTTP. `pktlog.service`'s `ExecStart` runs `start.sh` (not `uvicorn` directly), which implements this detection — so SSL just works under systemd once a cert/key are present, no unit changes needed.
 
-**To enable HTTPS:** upload cert/key via **Settings → Integrations → SSL / TLS**, then restart the service.
+**To enable HTTPS:** upload cert/key via **Settings → Security → SSL / TLS**, then restart the service.
 
 **To disable HTTPS:** remove the cert via the same Settings panel (or delete the files under `<INSTALL_DIR>/ssl/`), then restart.
 
@@ -328,11 +366,21 @@ pktLog auto-detects SSL on startup. If `<INSTALL_DIR>/ssl/server.crt` and `serve
 
 pktLog supports SSO with pktHub/pktFlow via a shared `suite_token`:
 
-- Generated on first call to `GET /api/suite/token`, or set/regenerated via the Settings UI
+- Generated on first call to `GET /api/suite/token`, or set/regenerated via **Settings → Security → Suite Integration** (this tab was labeled "pktHub Integration" before it was renamed to "Suite Integration")
 - Stored in SQLite (`settings` table), not in `config.yaml`
 - Requests carrying a matching `X-Suite-Token` header are trusted as coming from pktHub (see `app/dependencies.py`, `app/api/suite.py`)
+- `GET /api/suite/whoami` is what a sibling app's "Test Connection" button actually calls (not the public `/api/health`), so a wrong/revoked token fails the test instead of silently reporting a healthy connection
+- Copying the token from the Settings UI works over plain HTTP as well as HTTPS (falls back off the browser clipboard API, which requires a secure context, when needed)
 
-The token must match what's registered in pktHub's App Registry. Treat it as a shared secret — do not commit a real value to any tracked file.
+### Hub-managed direct-access lock
+
+pktHub can remotely lock pktLog's direct UI so users are redirected to sign in via pktHub instead: `POST /api/suite/direct-access {"locked": true}` (authenticated with `X-Suite-Token`). While locked, every non-API/non-asset request is redirected to whichever **Hub Redirect URL** is configured on the Suite Integration tab (also settable via `PATCH /api/suite/hub-redirect-url`).
+
+This can't permanently strand admins out of the UI: a heartbeat (refreshed on every suite-token-authenticated request) auto-clears the lock if it goes stale for more than 5 minutes, and the lock is also cleared automatically at application startup if pktHub itself is unreachable. If direct access ever seems unexpectedly blocked, check `GET /api/suite/mode` (no auth required) for the current `direct_ui_locked`/`hub_redirect_url` state.
+
+### Outbound integrations (sibling apps)
+
+Separately from the inbound `suite_token` above, pktLog has a backend API (`/api/integrations`) for storing named, admin-managed connections *from* pktlog *to* other pkt* apps (pktIPAM, pktFlow, pktSNMP, pktPCAP, pktWiFi, pktHub) — same pattern as the equivalent feature in pktIPAM/pktFlow/pktWiFi. As of this writing there is no Settings tab exposing it and no feature actually consumes a configured connection yet; it exists as forward-looking scaffolding, not a working integration.
 
 ---
 
@@ -387,15 +435,21 @@ pktlog/
 │   │   ├── settings.py      App settings CRUD
 │   │   ├── users.py         User management
 │   │   ├── system.py        Health, restart, SSL upload, backup
-│   │   ├── suite.py         pktSuite suite_token issuance/registration
+│   │   ├── suite.py         pktSuite suite_token issuance/registration, hub direct-access lock
+│   │   ├── integrations.py  Outbound connections to sibling pkt* apps (backend-only, no UI yet)
+│   │   ├── ip_info.py       Per-user IP intelligence/reputation lookup (ipinfo.io + AbuseIPDB)
+│   │   ├── user_api_keys.py Per-user external API key storage (AbuseIPDB/ipinfo.io/IPQualityScore)
+│   │   ├── ai.py             AI Assistant chat (Claude via Anthropic API)
+│   │   ├── ws.py             WebSocket for live dashboard/alert updates
 │   │   ├── widgets.py       Dashboard widgets
 │   │   └── pktlog.py        Misc endpoints
 │   ├── auth/                Local (JWT+bcrypt), Okta OIDC, SAML
-│   ├── alerts/               Alert evaluation engine
+│   ├── alerts/               Alert evaluation engine (6 notification channels)
+│   ├── integrations/          SuiteClient — shared HTTP client for calling sibling pkt* apps
 │   ├── ingest/
 │   │   ├── listener.py       Async UDP+TCP syslog listener (port 5514)
-│   │   ├── parser.py         RFC 3164 / RFC 5424 parsing
-│   │   ├── normalizer.py     org/group/site enrichment
+│   │   ├── parser.py         RFC 3164 / RFC 5424 parsing, dest_ip (DST=) extraction
+│   │   ├── normalizer.py     org/group/site enrichment, collector allowlist gate
 │   │   └── writer.py         Batch writer → storage backend
 │   ├── models/syslog.py       SyslogRecord dataclass
 │   ├── storage/
@@ -404,10 +458,11 @@ pktlog/
 │   │   └── factory.py        Backend selector
 │   ├── config.py             Settings loader (YAML + env)
 │   ├── database.py           SQLite init + migration runner
-│   └── main.py                App factory, lifespan, router registration
-├── clickhouse/schema.sql       syslog_events table (MergeTree)
+│   └── main.py                App factory, lifespan, router registration, direct-access-lock middleware
+├── clickhouse/schema.sql       syslog_events table (MergeTree, 18 columns incl. dest_ip)
 ├── frontend/src/
 │   ├── pages/                 Login, Dashboard, Alerts, Settings, Users, Logs, SyslogExplorer
+│   ├── components/            Layout, HelpButton (contextual help), IpLink (IP intel lookup), AiAssistant
 │   └── api/client.ts           Typed API client
 ├── migrations/                 SQLite migration scripts (auto-applied on startup)
 ├── install.sh                  Ubuntu install script (ClickHouse, venv, systemd service)
@@ -422,7 +477,8 @@ pktlog/
 ## Security Notes
 
 - Change `secret_key` in `config.yaml` (or `PKTLOG_SECRET_KEY` env var) before production use — `openssl rand -hex 32`
-- Change the default admin password immediately after first login
+- Change the default admin password immediately after first login (`install.sh` generates a random one and prints it once; it is not recoverable afterward except via `seed_admin.py` or a direct DB reset)
 - `cors_origins` should be restricted to your dashboard origin in production
+- **Don't disable both Local auth and SAML SSO** (Settings → Security → Auth) unless the UI is only reachable from a genuinely trusted network. With both off, the login page is skipped entirely and anyone who reaches it is auto-logged in as the designated default admin (`users.is_default_admin`, or the oldest active admin if none is flagged) via `POST /api/auth/auto-login` — there is intentionally no login prompt in that state
 - The pktSuite `suite_token` is a shared secret across pktHub/pktFlow/pktLog — never commit a real value to a tracked file, and rotating it requires updating it in all three services simultaneously
 - If a `config.yaml` with a real `secret_key` or `suite_token` is ever accidentally committed, treat both as compromised: rotate `secret_key` immediately (it only affects this service), but coordinate before rotating `suite_token` since it will break SSO for pktHub/pktFlow until updated everywhere
