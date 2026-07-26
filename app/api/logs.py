@@ -136,11 +136,15 @@ async def get_log_stats() -> dict:
             row = await cur.fetchone()
             latest_ts = row["ts"] if row else None
 
+    handler = _get_sqlite_handler()
+    capture_level = logging.getLevelName(handler.level) if handler else "WARNING"
+
     return {
         "total": total,
         "by_level": by_level,
         "loggers": loggers,
         "latest_ts": latest_ts,
+        "capture_level": capture_level,
     }
 
 
@@ -202,3 +206,17 @@ async def set_log_level(level: str, db: aiosqlite.Connection = Depends(get_db)) 
 
     log.info(f"Log capture level changed to {level}")
     return {"status": "ok", "level": level}
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+def _get_sqlite_handler():
+    """Return the first SQLiteLogHandler found on the pktlog logger, if any."""
+    try:
+        from app.logging_handler import SQLiteLogHandler
+        for h in logging.getLogger("pktlog").handlers:
+            if isinstance(h, SQLiteLogHandler):
+                return h
+    except ImportError:
+        pass
+    return None
