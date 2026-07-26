@@ -594,6 +594,7 @@ export interface LogStats {
   by_level: Record<string, number>
   loggers: string[]
   latest_ts: string | null
+  capture_level?: string
 }
 
 export type LogQueryParams = {
