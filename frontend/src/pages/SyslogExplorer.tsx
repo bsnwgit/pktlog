@@ -41,7 +41,7 @@ const TIME_PRESETS = [
   { label: 'Last 7d',  minutes: 10080 },
 ]
 
-const PAGE_SIZE = 100
+const PAGE_SIZE_OPTIONS = [25, 50, 75, 100]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -196,6 +196,7 @@ export default function SyslogExplorer() {
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [pageSize, setPageSize] = useState(25)
   const timezone = useTimezone()
 
   const abortRef = useRef<AbortController | null>(null)
@@ -209,7 +210,7 @@ export default function SyslogExplorer() {
     try {
       const params: SyslogSearchParams = {
         start: absWindow?.from ?? toISOStart(TIME_PRESETS[presetIdx].minutes),
-        limit: PAGE_SIZE,
+        limit: pageSize,
         offset: off,
       }
       if (absWindow?.to)  params.end = absWindow.to
@@ -231,13 +232,15 @@ export default function SyslogExplorer() {
     } finally {
       setLoading(false)
     }
-  }, [presetIdx, severityMax, program, sourceIp, destIp, collectorIp, collectorName, q, absWindow])
+  }, [presetIdx, severityMax, program, sourceIp, destIp, collectorIp, collectorName, q, absWindow, pageSize])
 
   // Run on mount and when filters change
   useEffect(() => { search(0) }, [search])
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1
+  const changePageSize = (size: number) => { setPageSize(size) }
+
+  const totalPages = Math.ceil(total / pageSize)
+  const currentPage = Math.floor(offset / pageSize) + 1
 
   const rowKey = (r: SyslogRecord, i: number) => `${r.timestamp}-${r.source_ip}-${i}`
 
@@ -366,9 +369,24 @@ export default function SyslogExplorer() {
       <div className="flex items-center justify-between text-xs text-gray-500 flex-wrap gap-2">
         <span>
           {loading ? 'Searching…' : `${total.toLocaleString()} result${total !== 1 ? 's' : ''}`}
-          {total > 0 && ` · showing ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)}`}
+          {total > 0 && ` · showing ${offset + 1}–${Math.min(offset + pageSize, total)}`}
         </span>
-        <Pagination page={currentPage} totalPages={totalPages} onChange={p => search((p - 1) * PAGE_SIZE)} />
+        <div className="flex items-center justify-center gap-6">
+          <Pagination page={currentPage} totalPages={totalPages} onChange={p => search((p - 1) * pageSize)} />
+          <div className="flex items-center gap-2">
+            <label htmlFor="explorer-results-per-page" className="text-xs text-gray-400">Results per page:</label>
+            <select
+              id="explorer-results-per-page"
+              value={pageSize}
+              onChange={e => changePageSize(Number(e.target.value))}
+              className="text-sm bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-sky-500"
+            >
+              {PAGE_SIZE_OPTIONS.map(size => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Error */}
