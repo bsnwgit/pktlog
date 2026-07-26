@@ -825,7 +825,7 @@ function RuleForm({
 
 // ── Pagination ────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 25
+const PAGE_SIZE_OPTIONS = [25, 50, 75, 100]
 
 /**
  * Page-number bar: shows every page when there are 5 or fewer, otherwise
@@ -900,6 +900,8 @@ export default function Alerts() {
   const [historyWindow, setHistoryWindow]   = useState<TimeWindow>({})
   const [activePage, setActivePage]         = useState(1)
   const [historyPage, setHistoryPage]       = useState(1)
+  const [activePageSize, setActivePageSize]   = useState(25)
+  const [historyPageSize, setHistoryPageSize] = useState(25)
   const [rulesFilter, setRulesFilter]       = useState('')
   const [rulesTopicFilter, setRulesTopicFilter] = useState('')
   const [rulesSortKey, setRulesSortKey]     = useState<keyof AlertRule | 'topic' | null>(null)
@@ -961,15 +963,18 @@ export default function Alerts() {
     await loadEvents()
   }
 
+  const changeActivePageSize = (size: number) => { setActivePageSize(size); setActivePage(1) }
+  const changeHistoryPageSize = (size: number) => { setHistoryPageSize(size); setHistoryPage(1) }
+
   const filteredEvents = useMemo(() => events.filter(e => {
     if (activeSevFilter && e.severity !== activeSevFilter) return false
     if (!activeFilter) return true
     const q = activeFilter.toLowerCase()
     return e.rule_name.toLowerCase().includes(q) || e.message.toLowerCase().includes(q)
   }), [events, activeSevFilter, activeFilter])
-  const activeTotalPages = Math.max(1, Math.ceil(filteredEvents.length / PAGE_SIZE))
+  const activeTotalPages = Math.max(1, Math.ceil(filteredEvents.length / activePageSize))
   const activePageClamped = Math.min(activePage, activeTotalPages)
-  const pagedEvents = filteredEvents.slice((activePageClamped - 1) * PAGE_SIZE, activePageClamped * PAGE_SIZE)
+  const pagedEvents = filteredEvents.slice((activePageClamped - 1) * activePageSize, activePageClamped * activePageSize)
 
   const filteredHistory = useMemo(() => history.filter(e => {
     if (historySevFilter && e.severity !== historySevFilter) return false
@@ -977,9 +982,9 @@ export default function Alerts() {
     const q = historyFilter.toLowerCase()
     return e.rule_name.toLowerCase().includes(q) || e.message.toLowerCase().includes(q)
   }), [history, historySevFilter, historyFilter])
-  const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / PAGE_SIZE))
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / historyPageSize))
   const historyPageClamped = Math.min(historyPage, historyTotalPages)
-  const pagedHistory = filteredHistory.slice((historyPageClamped - 1) * PAGE_SIZE, historyPageClamped * PAGE_SIZE)
+  const pagedHistory = filteredHistory.slice((historyPageClamped - 1) * historyPageSize, historyPageClamped * historyPageSize)
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',
@@ -1248,9 +1253,24 @@ export default function Alerts() {
           {filteredEvents.length > 0 && (
             <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
               <span>
-                Showing {((activePageClamped - 1) * PAGE_SIZE + 1).toLocaleString()}–{((activePageClamped - 1) * PAGE_SIZE + pagedEvents.length).toLocaleString()} of {filteredEvents.length.toLocaleString()} alerts
+                Showing {((activePageClamped - 1) * activePageSize + 1).toLocaleString()}–{((activePageClamped - 1) * activePageSize + pagedEvents.length).toLocaleString()} of {filteredEvents.length.toLocaleString()} alerts
               </span>
-              <Pagination page={activePageClamped} totalPages={activeTotalPages} onChange={setActivePage} />
+              <div className="flex items-center justify-center gap-6">
+                <Pagination page={activePageClamped} totalPages={activeTotalPages} onChange={setActivePage} />
+                <div className="flex items-center gap-2">
+                  <label htmlFor="active-alerts-per-page" className="text-xs text-gray-400">Alerts per page:</label>
+                  <select
+                    id="active-alerts-per-page"
+                    value={activePageSize}
+                    onChange={e => changeActivePageSize(Number(e.target.value))}
+                    className="text-sm bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-sky-500"
+                  >
+                    {PAGE_SIZE_OPTIONS.map(size => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1296,9 +1316,24 @@ export default function Alerts() {
           {filteredHistory.length > 0 && (
             <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
               <span>
-                Showing {((historyPageClamped - 1) * PAGE_SIZE + 1).toLocaleString()}–{((historyPageClamped - 1) * PAGE_SIZE + pagedHistory.length).toLocaleString()} of {filteredHistory.length.toLocaleString()} alerts
+                Showing {((historyPageClamped - 1) * historyPageSize + 1).toLocaleString()}–{((historyPageClamped - 1) * historyPageSize + pagedHistory.length).toLocaleString()} of {filteredHistory.length.toLocaleString()} alerts
               </span>
-              <Pagination page={historyPageClamped} totalPages={historyTotalPages} onChange={setHistoryPage} />
+              <div className="flex items-center justify-center gap-6">
+                <Pagination page={historyPageClamped} totalPages={historyTotalPages} onChange={setHistoryPage} />
+                <div className="flex items-center gap-2">
+                  <label htmlFor="history-alerts-per-page" className="text-xs text-gray-400">Alerts per page:</label>
+                  <select
+                    id="history-alerts-per-page"
+                    value={historyPageSize}
+                    onChange={e => changeHistoryPageSize(Number(e.target.value))}
+                    className="text-sm bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-sky-500"
+                  >
+                    {PAGE_SIZE_OPTIONS.map(size => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           )}
         </div>
