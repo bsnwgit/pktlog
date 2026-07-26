@@ -202,7 +202,7 @@ function shortLogger(logger: string): string {
   return logger.replace(/^pktlog\./, '')
 }
 
-const PAGE_SIZE = 50
+const PAGE_SIZE_OPTIONS = [25, 50, 75, 100]
 
 /**
  * Page-number bar: shows every page when there are 5 or fewer, otherwise
@@ -272,6 +272,7 @@ export default function Logs() {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>({})
   const [liveLevel, setLiveLevel] = useState('WARNING')
   const [page, setPage]           = useState(1)
+  const [pageSize, setPageSize]   = useState(25)
 
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [loading, setLoading]         = useState(false)
@@ -290,8 +291,8 @@ export default function Logs() {
     setError('')
     try {
       const params: Record<string, string> = {
-        limit: String(PAGE_SIZE),
-        offset: String((page - 1) * PAGE_SIZE),
+        limit: String(pageSize),
+        offset: String((page - 1) * pageSize),
       }
       if (level !== 'ALL') params.level = level
       if (logger)          params.logger = logger
@@ -311,7 +312,7 @@ export default function Logs() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [level, logger, search, timeWindow, page])
+  }, [level, logger, search, timeWindow, page, pageSize])
 
   useEffect(() => {
     fetchLogs()
@@ -348,6 +349,8 @@ export default function Logs() {
       setClearing(false)
     }
   }
+
+  const changePageSize = (size: number) => { setPageSize(size); setPage(1) }
 
   const handleSetLevel = async (newLevel: string) => {
     setLevelChanging(true)
@@ -507,7 +510,22 @@ export default function Logs() {
       )}
 
       {/* Pagination */}
-      <Pagination page={page} totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))} onChange={setPage} />
+      <div className="flex items-center justify-center gap-6">
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(total / pageSize))} onChange={setPage} />
+        <div className="flex items-center gap-2">
+          <label htmlFor="logs-per-page" className="text-xs text-gray-400">Records per page:</label>
+          <select
+            id="logs-per-page"
+            value={pageSize}
+            onChange={e => changePageSize(Number(e.target.value))}
+            className="text-sm bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-sky-500"
+          >
+            {PAGE_SIZE_OPTIONS.map(size => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {/* Log table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -583,7 +601,7 @@ export default function Logs() {
         {records.length > 0 && (
           <div className="px-4 py-2 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500">
             <span>
-              Showing {((page - 1) * PAGE_SIZE + 1).toLocaleString()}–{((page - 1) * PAGE_SIZE + records.length).toLocaleString()} of {total.toLocaleString()} records (newest first)
+              Showing {((page - 1) * pageSize + 1).toLocaleString()}–{((page - 1) * pageSize + records.length).toLocaleString()} of {total.toLocaleString()} records (newest first)
             </span>
             {autoRefresh && (
               <span className="flex items-center gap-1.5 text-blue-400">
