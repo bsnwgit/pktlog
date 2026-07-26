@@ -283,15 +283,76 @@ export const api = {
     request<UserApiKey>(`/user-api-keys/${provider}`, { method: 'PUT', body: JSON.stringify({ api_key }) }),
   testUserApiKey: (provider: string, api_key: string) =>
     request<{ status: string; detail: string }>(`/user-api-keys/${provider}/test`, { method: 'POST', body: JSON.stringify({ api_key }) }),
+  setIpinfoFields: (enabled_fields: string[]) =>
+    request<UserApiKey>('/user-api-keys/ipinfo/fields', { method: 'PUT', body: JSON.stringify({ enabled_fields }) }),
+  setIpapiIsFields: (enabled_fields: string[]) =>
+    request<UserApiKey>('/user-api-keys/ipapi_is/fields', { method: 'PUT', body: JSON.stringify({ enabled_fields }) }),
+  setIpapiIsFreeTier: (free_tier: boolean) =>
+    request<UserApiKey>('/user-api-keys/ipapi_is/free-tier', { method: 'PUT', body: JSON.stringify({ free_tier }) }),
+  setMxtoolboxFields: (enabled_fields: string[]) =>
+    request<UserApiKey>('/user-api-keys/mxtoolbox/fields', { method: 'PUT', body: JSON.stringify({ enabled_fields }) }),
+  setProviderEnabled: (provider: string, enabled: boolean) =>
+    request<UserApiKey>(`/user-api-keys/${provider}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   getIpInfo: (ip: string) => request<IpInfoResult>(`/ip-info/${ip}`),
+  getInternalIpInfo: (ip: string) => request<InternalIpInfoResult>(`/ip-info/internal/${ip}`),
+
+  getIntegrations: () => request<Integration[]>('/integrations'),
+  createIntegration: (body: IntegrationInput) =>
+    request<Integration>('/integrations', { method: 'POST', body: JSON.stringify(body) }),
+  updateIntegration: (id: number, body: Partial<IntegrationInput>) =>
+    request<Integration>(`/integrations/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteIntegration: (id: number) => request(`/integrations/${id}`, { method: 'DELETE' }),
+  testIntegration: (id: number) => request<{ healthy: boolean; detail: string }>(`/integrations/${id}/test`, { method: 'POST' }),
 }
 
 export interface IpInfoResult {
   ip: string
   ipinfo: Record<string, any> | null
   ipinfo_error: string | null
+  ipinfo_enabled_fields: string[] | null
+  ipinfo_enabled: boolean
+  ipapi_is: Record<string, any> | null
+  ipapi_is_error: string | null
+  ipapi_is_enabled_fields: string[] | null
+  ipapi_is_enabled: boolean
   abuseipdb: Record<string, any> | null
   abuseipdb_error: string | null
+  abuseipdb_enabled: boolean
+  mxtoolbox: Record<string, any> | null
+  mxtoolbox_error: string | null
+  mxtoolbox_enabled_fields: string[] | null
+  mxtoolbox_enabled: boolean
+}
+
+export interface Integration {
+  id: number
+  name: string
+  app_name: string
+  base_url: string
+  has_token: boolean
+  enabled: boolean
+  health_status: string
+  last_health_check: string | null
+}
+
+export interface IntegrationInput {
+  name: string
+  app_name?: string
+  base_url: string
+  suite_token: string
+  enabled?: boolean
+}
+
+export interface InternalIpInfoResult {
+  ip: string
+  configured: boolean
+  found: boolean
+  error: string | null
+  subnet: { cidr: string; vlan_id: number | null; site: string | null; description: string | null; gateway: string | null } | null
+  ip_address: { status: string; mac_address: string | null; hostname: string | null; description: string | null; owner: string | null; tags: string[] } | null
+  dhcp_leases: { mac_address: string | null; hostname: string | null; state: string; starts_at: string | null; ends_at: string | null; last_seen: string }[]
+  dns_records: { zone: string; name: string; record_type: string; ttl: number | null; last_seen: string }[]
+  arp_entries: { device_label: string | null; mac_address: string | null; interface: string | null; vlan_tag: number | null; last_seen: string }[]
 }
 
 export interface UserApiKey {
@@ -299,6 +360,9 @@ export interface UserApiKey {
   label: string
   api_key: string
   updated_at: string | null
+  enabled_fields: string[] | null // ipinfo/ipapi_is/mxtoolbox only; null = not customized (all shown)
+  free_tier: boolean // ipapi_is only — use its keyless free tier instead of api_key
+  enabled: boolean // ipinfo/ipapi_is/abuseipdb/mxtoolbox only — show this provider's section in the IP Lookup modal at all
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
