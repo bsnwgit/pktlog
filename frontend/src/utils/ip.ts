@@ -21,3 +21,10 @@ export function isPrivateIp(ip: string): boolean {
   if (Number.isNaN(n)) return true // not a plain IPv4 address — don't offer a lookup link
   return PRIVATE_RANGES.some(([lo, hi]) => n >= lo && n <= hi)
 }
+
+// True only for well-formed IPv4 addresses — used to gate the internal
+// (pktIPAM) lookup link, since isPrivateIp() above also returns true for
+// garbage input where there's nothing to look up.
+export function isValidIpv4(ip: string): boolean {
+  return !Number.isNaN(ipToInt(ip))
+}
