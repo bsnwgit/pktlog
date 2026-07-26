@@ -317,6 +317,12 @@ export default function Logs() {
     fetchLogs()
   }, [fetchLogs])
 
+  // Reflect the real persisted capture level once stats load, instead of
+  // always showing the hardcoded initial guess above.
+  useEffect(() => {
+    if (stats?.capture_level) setLiveLevel(stats.capture_level)
+  }, [stats?.capture_level])
+
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     if (autoRefresh) {
