@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, Collector, CollectorIn, User, UserIn, SslStatus, UserApiKey } from '../api/client'
+import { api, Collector, CollectorIn, User, UserIn, SslStatus, UserApiKey, Integration, IntegrationInput } from '../api/client'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useAuth } from '../store/auth'
 import { useTimezone } from '../hooks/useTimezone'
@@ -407,6 +407,180 @@ function parseIdpMetadata(xml: string): {
   }
 }
 
+
+// ── Sibling pkt apps (outbound) ─────────────────────────────────────────────────
+// Named connections to sibling pkt* apps pktlog pulls data from — currently
+// just pktIPAM, for the internal-IP lookup in IpLink.tsx. Ported from
+// pktflow's own "sibling pkt apps" pattern.
+const APP_LABELS: Record<string, string> = {
+  pktipam: 'pktIPAM',
+}
+
+interface IntegrationFormState {
+  name: string; app_name: string; base_url: string; suite_token: string
+}
+
+const EMPTY_INTEGRATION: IntegrationFormState = { name: '', app_name: 'pktipam', base_url: '', suite_token: '' }
+
+function IntegrationFormModal({ integration, onClose, onSaved }: {
+  integration: Integration | null; onClose: () => void; onSaved: () => void
+}) {
+  const editing = !!integration
+  const [form, setForm] = useState<IntegrationFormState>(
+    editing ? { name: integration!.name, app_name: integration!.app_name, base_url: integration!.base_url, suite_token: '' }
+            : { ...EMPTY_INTEGRATION }
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const setF = <K extends keyof IntegrationFormState>(k: K, v: IntegrationFormState[K]) => setForm(f => ({ ...f, [k]: v }))
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      if (editing) {
+        const body: Partial<IntegrationInput> = { name: form.name, base_url: form.base_url }
+        if (form.suite_token) body.suite_token = form.suite_token
+        await api.updateIntegration(integration!.id, body)
+      } else {
+        await api.createIntegration(form)
+      }
+      onSaved()
+    } catch (e: any) {
+      setError(e.message ?? 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inp = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500'
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-white mb-5">{editing ? `Edit — ${integration!.name}` : 'Add pktIPAM Connection'}</h2>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="text-xs text-white block mb-1">Name *</label>
+            <input value={form.name} onChange={e => setF('name', e.target.value)} required autoFocus
+              placeholder="e.g. Main pktIPAM" className={inp} />
+          </div>
+          <div>
+            <label className="text-xs text-white block mb-1">Base URL *</label>
+            <input value={form.base_url} onChange={e => setF('base_url', e.target.value)} required
+              placeholder="http://aiserver:8761" className={inp} />
+          </div>
+          <div>
+            <label className="text-xs text-white block mb-1">Suite Token {editing ? '(leave blank to keep)' : '*'}</label>
+            <input type="password" value={form.suite_token} onChange={e => setF('suite_token', e.target.value)}
+              required={!editing} placeholder="From that pktIPAM's Settings -> Integrations -> Suite Integration" className={inp} />
+          </div>
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-white">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50">
+              {saving ? 'Saving…' : (editing ? 'Save Changes' : 'Add Connection')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function SiblingIntegrations() {
+  const [items, setItems] = useState<Integration[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState<'new' | Integration | null>(null)
+  const [confirm, setConfirm] = useState<Integration | null>(null)
+  const [testResult, setTestResult] = useState<Record<number, string>>({})
+  const [error, setError] = useState('')
+
+  const load = () => {
+    setLoading(true)
+    api.getIntegrations().then(setItems).catch(e => setError(e.message)).finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const del = async (i: Integration) => {
+    try {
+      await api.deleteIntegration(i.id)
+      setConfirm(null)
+      load()
+    } catch (e: any) {
+      setError(e.message)
+    }
+  }
+
+  const test = async (i: Integration) => {
+    try {
+      const result = await api.testIntegration(i.id)
+      setTestResult(prev => ({ ...prev, [i.id]: result.healthy ? `OK — ${result.detail}` : `Failed — ${result.detail}` }))
+    } catch (e: any) {
+      setTestResult(prev => ({ ...prev, [i.id]: `Failed — ${e.message}` }))
+    }
+    load()
+  }
+
+  if (loading) return <p className="text-xs text-white animate-pulse py-3">Loading…</p>
+
+  return (
+    <div className="space-y-3 py-3">
+      {error && (
+        <div className="bg-red-900/30 border border-red-700/50 text-red-400 text-sm rounded-lg px-4 py-2 flex items-center justify-between">
+          {error}<button onClick={() => setError('')} className="ml-4 text-red-600 hover:text-red-400">✕</button>
+        </div>
+      )}
+
+      {items.map(i => (
+        <div key={i.id} className="bg-gray-800/40 border border-gray-800 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p className="text-sm font-medium text-white">{i.name}</p>
+              <p className="text-xs text-white">{APP_LABELS[i.app_name] ?? i.app_name} · {i.base_url || 'no URL set'}</p>
+            </div>
+            <span className={i.health_status === 'ok' ? 'text-xs text-emerald-400' : 'text-xs text-white'}>{i.health_status}</span>
+          </div>
+          <div className="flex items-center gap-3 mt-2">
+            <button onClick={() => test(i)} className="text-xs text-white border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-800">Test Connection</button>
+            <button onClick={() => setModal(i)} className="text-xs text-white hover:text-blue-400">Edit</button>
+            <button onClick={() => setConfirm(i)} className="text-xs text-white hover:text-red-400">Delete</button>
+            {testResult[i.id] && <span className="text-xs text-white">{testResult[i.id]}</span>}
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && <p className="text-sm text-white py-2">No pktIPAM connections yet.</p>}
+
+      <button onClick={() => setModal('new')}
+        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors">
+        <span className="text-base leading-none">+</span> Add Connection
+      </button>
+
+      {modal !== null && (
+        <IntegrationFormModal integration={modal === 'new' ? null : modal} onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load() }} />
+      )}
+
+      {confirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirm(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-white font-semibold mb-2">Delete connection?</h3>
+            <p className="text-white text-sm mb-5">
+              Remove <strong className="text-white">{confirm.name}</strong>? Internal-IP lookups will fall back to
+              any other enabled pktIPAM connection, or stop working if this was the only one.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirm(null)} className="px-4 py-2 text-sm text-white">Cancel</button>
+              <button onClick={() => del(confirm)} className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+// ── End Sibling pkt apps ──────────────────────────────────────────────────────
 
 // ── Suite Integration component ───────────────────────────────────────────────
 function PktHubTokenDisplay() {
@@ -930,6 +1104,19 @@ export default function Settings() {
                   </HelpButton>
                 </div>
                 <PktHubTokenDisplay />
+              </div>
+            )}
+
+            {securityTab === 'suite' && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl px-6 py-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <h2 className="text-sm font-semibold text-white">Sibling pkt Apps</h2>
+                  <HelpButton title="Sibling pkt Apps — How It Works">
+                    <p>The other direction from the Suite Token above: pktlog calling into pktIPAM to look up internal (private) IP addresses — subnet, hostname, DHCP lease, DNS records — the same way it already looks up external IPs via ipinfo.io/AbuseIPDB.</p>
+                    <p className="mt-2">In pktIPAM, go to Settings &#8594; Integrations &#8594; Suite Integration and copy its Suite Token, then add a connection here with pktIPAM's base URL and that token. You can add more than one named pktIPAM connection; the first enabled one is used for lookups.</p>
+                  </HelpButton>
+                </div>
+                <SiblingIntegrations />
               </div>
             )}
 
@@ -2066,6 +2253,42 @@ function ResetPasswordModal({ user, onClose }: ResetPwProps) {
   )
 }
 
+// Providers whose response the user can filter down to specific sections in
+// the IP Lookup modal. Keyed by provider id; each entry's field keys match
+// what the backend's IPINFO_FIELDS / IPAPI_IS_FIELDS constants accept.
+const FIELD_SETS: Record<string, { key: string; label: string }[]> = {
+  ipinfo: [
+    { key: 'geolocation', label: 'Geolocation' },
+    { key: 'asn',         label: 'ASN / Org' },
+    { key: 'company',     label: 'Company' },
+    { key: 'privacy',     label: 'Privacy Detection (VPN/Proxy/Tor)' },
+    { key: 'abuse',       label: 'Abuse Contact' },
+    { key: 'domains',     label: 'Hosted Domains' },
+  ],
+  ipapi_is: [
+    { key: 'geolocation', label: 'Geolocation' },
+    { key: 'asn',         label: 'ASN / Org' },
+    { key: 'company',     label: 'Company' },
+    { key: 'detection',   label: 'Threat Detection (VPN/Proxy/Tor/Datacenter)' },
+    { key: 'abuse',       label: 'Abuse Contact' },
+  ],
+  mxtoolbox: [
+    { key: 'ptr',       label: 'Reverse DNS (PTR)' },
+    { key: 'asn',       label: 'ASN' },
+    { key: 'blacklist', label: 'Blacklist Check' },
+  ],
+}
+const setFieldsApi: Record<string, (fields: string[]) => Promise<UserApiKey>> = {
+  ipinfo: api.setIpinfoFields,
+  ipapi_is: api.setIpapiIsFields,
+  mxtoolbox: api.setMxtoolboxFields,
+}
+// The 4 providers with a section in the IP Lookup modal — AbuseIPDB has no
+// per-field checkboxes (single score, not multiple sections) but still gets
+// the modal-section on/off toggle. IPQualityScore isn't wired into the modal
+// at all, so it gets neither.
+const MODAL_PROVIDERS = ['ipinfo', 'ipapi_is', 'abuseipdb', 'mxtoolbox']
+
 function ApiKeysTab({ lucidToken, onLucidChange, lucidSave }: {
   lucidToken: string
   onLucidChange: (v: string) => void
@@ -2080,6 +2303,40 @@ function ApiKeysTab({ lucidToken, onLucidChange, lucidSave }: {
   const [error, setError]     = useState<Record<string, string>>({})
   const [testing, setTesting] = useState<Record<string, boolean>>({})
   const [testResult, setTestResult] = useState<Record<string, { ok: boolean; detail: string }>>({})
+  const [fieldsError, setFieldsError] = useState('')
+
+  async function handleToggleField(provider: string, fieldKey: string, checked: boolean) {
+    const providerKey = keys.find(k => k.provider === provider)
+    const current = providerKey?.enabled_fields ?? FIELD_SETS[provider].map(f => f.key)
+    const next = checked ? [...current, fieldKey] : current.filter(f => f !== fieldKey)
+    setFieldsError('')
+    try {
+      const updated = await setFieldsApi[provider](next)
+      setKeys(prev => prev.map(k => k.provider === provider ? updated : k))
+    } catch (err: any) {
+      setFieldsError(err.message ?? 'Failed to save')
+    }
+  }
+
+  async function handleToggleFreeTier(checked: boolean) {
+    setFieldsError('')
+    try {
+      const updated = await api.setIpapiIsFreeTier(checked)
+      setKeys(prev => prev.map(k => k.provider === 'ipapi_is' ? updated : k))
+    } catch (err: any) {
+      setFieldsError(err.message ?? 'Failed to save')
+    }
+  }
+
+  async function handleToggleEnabled(provider: string, checked: boolean) {
+    setFieldsError('')
+    try {
+      const updated = await api.setProviderEnabled(provider, checked)
+      setKeys(prev => prev.map(k => k.provider === provider ? updated : k))
+    } catch (err: any) {
+      setFieldsError(err.message ?? 'Failed to save')
+    }
+  }
 
   function load() {
     setLoading(true)
@@ -2137,27 +2394,52 @@ function ApiKeysTab({ lucidToken, onLucidChange, lucidSave }: {
         <p className="text-sm text-white">Loading…</p>
       ) : (
         <div className="space-y-4 max-w-lg">
-          {keys.map(k => (
+          {keys.map(k => {
+            const isFreeTier = k.provider === 'ipapi_is' && k.free_tier
+            return (
             <div key={k.provider}>
               <label className="block text-xs text-white mb-1">{k.label}</label>
+              {MODAL_PROVIDERS.includes(k.provider) && (
+                <label className="flex items-center gap-2 text-xs text-white cursor-pointer mb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={k.enabled}
+                    onChange={e => handleToggleEnabled(k.provider, e.target.checked)}
+                    className="accent-blue-600"
+                  />
+                  Show this provider in the IP Lookup modal
+                </label>
+              )}
+              {k.provider === 'ipapi_is' && (
+                <label className="flex items-center gap-2 text-xs text-white cursor-pointer mb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={k.free_tier}
+                    onChange={e => handleToggleFreeTier(e.target.checked)}
+                    className="accent-blue-600"
+                  />
+                  Use free tier (no key required, ~1,000 lookups/day)
+                </label>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   type="password"
                   value={drafts[k.provider] ?? ''}
                   onChange={e => setDrafts(d => ({ ...d, [k.provider]: e.target.value }))}
                   placeholder="Not set"
-                  className={inp}
+                  disabled={isFreeTier}
+                  className={`${inp} ${isFreeTier ? 'opacity-40 cursor-not-allowed' : ''}`}
                 />
                 <button
                   onClick={() => handleTest(k.provider)}
-                  disabled={testing[k.provider] || !(drafts[k.provider] ?? '').trim()}
+                  disabled={isFreeTier || testing[k.provider] || !(drafts[k.provider] ?? '').trim()}
                   className="shrink-0 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium rounded-lg px-4 py-2 transition-colors disabled:opacity-50"
                 >
                   {testing[k.provider] ? 'Testing…' : 'Test'}
                 </button>
                 <button
                   onClick={() => handleSave(k.provider)}
-                  disabled={saving[k.provider]}
+                  disabled={isFreeTier || saving[k.provider]}
                   className="shrink-0 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-4 py-2 transition-colors"
                 >
                   {saving[k.provider] ? 'Saving…' : 'Save'}
@@ -2170,8 +2452,27 @@ function ApiKeysTab({ lucidToken, onLucidChange, lucidSave }: {
                   {testResult[k.provider].ok ? '✓ ' : '✗ '}{testResult[k.provider].detail}
                 </p>
               )}
+              {FIELD_SETS[k.provider] && (
+                <div className="mt-3 pl-1">
+                  <p className="text-xs text-gray-500 mb-1.5">Shown in the IP Lookup modal:</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {FIELD_SETS[k.provider].map(f => (
+                      <label key={f.key} className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={k.enabled_fields ? k.enabled_fields.includes(f.key) : true}
+                          onChange={e => handleToggleField(k.provider, f.key, e.target.checked)}
+                          className="accent-blue-600"
+                        />
+                        {f.label}
+                      </label>
+                    ))}
+                  </div>
+                  {fieldsError && <p className="text-xs text-red-400 mt-1">{fieldsError}</p>}
+                </div>
+              )}
             </div>
-          ))}
+          )})}
         </div>
       )}
 
@@ -2196,7 +2497,7 @@ function ApiKeysTab({ lucidToken, onLucidChange, lucidSave }: {
         </div>
         {lucidSave.saved && <p className="text-xs text-green-400 mt-1">Saved</p>}
         {lucidSave.error && <p className="text-xs text-red-400 mt-1">{lucidSave.error}</p>}
-        <p className="text-xs text-gray-500 mt-1">Personal Access Token from lucid.co → Account → API Tokens.</p>
+        <p className="text-xs text-gray-500 mt-1">Personal Access Token from lucid.co → Account → API Tokens. Required for topology export to Lucidchart.</p>
       </div>
     </div>
   )
