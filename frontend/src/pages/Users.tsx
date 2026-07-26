@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { api, User, UserIn } from '../api/client'
 import { useAuth } from '../store/auth'
 import { useTimezone } from '../hooks/useTimezone'
+import HelpButton from '../components/HelpButton'
 
 const ROLES = ['admin', 'viewer', 'analyst']
 
@@ -200,7 +201,14 @@ export default function Users() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-white">Users</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-white">Users</h1>
+          <HelpButton title="Users — How It Works">
+            <p>Local accounts for signing into this app — separate from device or syslog-source credentials.</p>
+            <p><strong className="text-white">admin</strong> has full access including user management; <strong className="text-white">analyst</strong> can read and export data; <strong className="text-white">viewer</strong> is read-only.</p>
+            <p>Disabling a user blocks login without deleting their account or history. You can't disable or delete your own account.</p>
+          </HelpButton>
+        </div>
         <button onClick={() => setModal('create')}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors">
           <span className="text-base leading-none">+</span> Add User
