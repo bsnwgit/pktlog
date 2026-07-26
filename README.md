@@ -125,9 +125,11 @@ Alongside `source_ip`, the syslog schema has a `dest_ip` column parsed from a `D
 
 ### IP intelligence / reputation lookup
 
-Every public IP address shown anywhere in the UI (Syslog Explorer, Dashboard, Alerts) is clickable — it opens a lookup panel combining [ipinfo.io](https://ipinfo.io) (geolocation/ASN/hostname) and [AbuseIPDB](https://www.abuseipdb.com) (abuse confidence score, report history) via `GET /api/ip-info/{ip}`. Private/loopback/link-local/multicast addresses aren't clickable — external providers have nothing useful to say about them.
+Every public IP address shown anywhere in the UI (Syslog Explorer, Dashboard, Alerts) is clickable — it opens a lookup panel combining [ipinfo.io](https://ipinfo.io) (geolocation/ASN/hostname, plus company/privacy/abuse-contact on paid plans), [ipapi.is](https://ipapi.is) (geolocation, ASN/org, company, abuse contact, VPN/proxy/Tor/datacenter/abuser detection — all in one call, no plan gating), [AbuseIPDB](https://www.abuseipdb.com) (abuse confidence score, report history), and [MXToolbox](https://mxtoolbox.com) (reverse DNS/PTR, ASN, and a blacklist/RBL check) via `GET /api/ip-info/{ip}`, all four called concurrently. Private/loopback/link-local/multicast addresses aren't clickable — external providers have nothing useful to say about them.
 
-This is **per-user**, not a global app setting: each user adds their own API keys under **Settings → User Keys**, and lookups run under the logged-in user's own keys/quota. Three providers can have a key stored and tested there (AbuseIPDB, ipinfo.io, IPQualityScore), but only ipinfo.io and AbuseIPDB are actually used by the lookup panel today — an IPQualityScore key can be saved and tested but isn't consumed anywhere yet.
+This is **per-user**, not a global app setting: each user adds their own API keys under **Settings → User Keys**, and lookups run under the logged-in user's own keys/quota. Five providers can have a key stored and tested there (AbuseIPDB, ipinfo.io, ipapi.is, MXToolbox, IPQualityScore), but only four of them are actually used by the lookup panel today — an IPQualityScore key can be saved and tested but isn't consumed anywhere yet.
+
+MXToolbox's other commands — email/DNS record checks (SPF, DMARC, DKIM, MX, DNS, TXT, SOA, BIMI, MTA-STS, TLSRPT, A, AAAA) and active probes (ping, traceroute, TCP/HTTP/HTTPS/SMTP connect, run from MXToolbox's own infrastructure) — are reachable via `POST /api/mxtoolbox/lookup` (`{command, argument, port?}`) but aren't surfaced in the lookup panel yet; that's backend-only reach for now.
 
 ### AI Assistant
 
@@ -441,8 +443,12 @@ pktlog/
 │   │   ├── system.py        Health, restart, SSL upload, backup
 │   │   ├── suite.py         pktSuite suite_token issuance/registration, hub direct-access lock
 │   │   ├── integrations.py  Outbound connections to sibling pkt* apps (backend-only, no UI yet)
-│   │   ├── ip_info.py       Per-user IP intelligence/reputation lookup (ipinfo.io + AbuseIPDB)
-│   │   ├── user_api_keys.py Per-user external API key storage (AbuseIPDB/ipinfo.io/IPQualityScore)
+│   │   ├── ip_info.py       Per-user IP intelligence/reputation lookup (ipinfo.io + ipapi.is +
+│   │   │                     AbuseIPDB + MXToolbox ptr/asn/blacklist)
+│   │   ├── mxtoolbox.py     Generic MXToolbox command passthrough (/api/mxtoolbox/lookup) —
+│   │   │                     DNS/email records + active probes
+│   │   ├── user_api_keys.py Per-user external API key storage (AbuseIPDB/ipinfo.io/ipapi.is/
+│   │   │                     MXToolbox/IPQualityScore)
 │   │   ├── ai.py             AI Assistant chat (Claude via Anthropic API)
 │   │   ├── ws.py             WebSocket for live dashboard/alert updates
 │   │   ├── widgets.py       Dashboard widgets
