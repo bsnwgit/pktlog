@@ -73,9 +73,9 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 const NAV = [
   { to: '/',         label: 'Dashboard', icon: '◑', adminOnly: false },
   { to: '/explorer', label: 'Explorer',  icon: '⊞', adminOnly: false },
-  { to: '/alerts',   label: 'Alerts',    icon: '△', adminOnly: false },
+  { to: '/alerts',   label: 'Alerts',    icon: '△', adminOnly: false, dividerBefore: true },
   { to: '/logs',     label: 'Logs',      icon: '≡', adminOnly: false },
-  { to: '/settings', label: 'Settings',  icon: '⚙', adminOnly: false },
+  { to: '/settings', label: 'Settings',  icon: '⚙', adminOnly: false, dividerBefore: true },
 ]
 
 const INTERVALS = [
@@ -159,26 +159,28 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {NAV.filter(n => !n.adminOnly || user?.role === 'admin').map(({ to, label, icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) => clsx(
-                'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
-                isActive
-                  ? 'bg-blue-600/20 text-blue-300 font-medium'
-                  : 'text-white hover:text-white hover:bg-gray-800',
-              )}
-            >
-              <span className="text-base leading-none">{icon}</span>
-              <span>{label}</span>
-              {label === 'Alerts' && unacked > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none">
-                  {unacked}
-                </span>
-              )}
-            </NavLink>
+          {NAV.filter(n => !n.adminOnly || user?.role === 'admin').map(({ to, label, icon, dividerBefore }) => (
+            <div key={to}>
+              {dividerBefore && <div className="h-0.5 bg-gray-600 mx-1 my-2 rounded-full" />}
+              <NavLink
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) => clsx(
+                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+                  isActive
+                    ? 'bg-blue-600/20 text-blue-300 font-medium'
+                    : 'text-white hover:text-white hover:bg-gray-800',
+                )}
+              >
+                <span className="text-base leading-none">{icon}</span>
+                <span>{label}</span>
+                {label === 'Alerts' && unacked > 0 && (
+                  <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none">
+                    {unacked}
+                  </span>
+                )}
+              </NavLink>
+            </div>
           ))}
         </nav>
 
