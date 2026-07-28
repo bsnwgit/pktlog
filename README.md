@@ -109,7 +109,7 @@ Alert-event and user last-login timestamps (`alert_events.fired_at`, `users.last
 
 The Application Logs page (search + level filter) also has a time-range dropdown — 1h/6h/24h/7d/30d/All time, plus **Custom range…** with two date/time pickers (defaulting to today, 12:00 AM–11:59 PM). The custom range validates that the end is after the start (same-day-with-earlier-end-time counts as invalid too) and disallows future times on either side, showing an inline error instead of silently applying an impossible filter.
 
-Both Application Logs and Syslog Explorer paginate server-side (50/page and 100/page respectively) with a page-number bar above the table: a sliding window of 5 numbers that follows the current page (Next from page 5 moves to 6-10, Prev the same way in reverse), a `1 ..` shortcut back to page 1 once past the first block, and a `.. N` shortcut to the last page.
+Application Logs, Syslog Explorer, and Alerts (active and history tabs, sized independently) all paginate with a page-number bar above the table — a sliding window of 5 numbers that follows the current page (Next from page 5 moves to 6-10, Prev the same way in reverse), a `1 ..` shortcut back to page 1 once past the first block, and a `.. N` shortcut to the last page — plus a per-table page-size dropdown (25/50/75/100, defaulting to 25) that resets to page 1 on change. Logs and Syslog Explorer thread the chosen size into their server-side `limit`/`offset` fetch; Alerts fetches its full active/history set and re-slices it client-side per page.
 
 ### Alert rules bulk import/export
 
