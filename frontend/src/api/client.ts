@@ -215,9 +215,10 @@ export const api = {
     request<{ status: string; path: string; files: string[]; kept: number }>('/system/backup', { method: 'POST' }),
   listBackups: () =>
     request<Array<{ name: string; path: string; size_bytes: number; files: string[] }>>('/system/backup/list'),
-  importBundle: async (file: File): Promise<Record<string, string>> => {
+  importBundle: async (file: File, files?: string[]): Promise<Record<string, string>> => {
     const formData = new FormData()
     formData.append('file', file)
+    if (files) formData.append('files', files.join(','))
     const headers: Record<string, string> = {}
     if (_accessToken) headers['Authorization'] = `Bearer ${_accessToken}`
     const res = await fetch('/api/system/import', { method: 'POST', headers, body: formData })
@@ -226,6 +227,10 @@ export const api = {
       throw new Error(err.detail || res.statusText)
     }
     return res.json()
+  },
+  restoreSnapshot: (name: string, files?: string[]): Promise<Record<string, string>> => {
+    const qs = files && files.length ? `?files=${encodeURIComponent(files.join(','))}` : ''
+    return request<Record<string, string>>(`/system/backup/restore/${encodeURIComponent(name)}${qs}`, { method: 'POST' })
   },
   exportConfig: async (): Promise<{ blob: Blob; filename: string }> => {
     const headers: Record<string, string> = {}

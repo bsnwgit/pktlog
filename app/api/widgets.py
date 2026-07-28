@@ -31,6 +31,20 @@ MANIFEST = [
         "default_h": 400,
         "min_w": 400,
         "min_h": 200,
+        "params": [
+            {
+                "key": "severity_max",
+                "label": "Min Severity",
+                "type": "select",
+                "options": [
+                    {"value": "", "label": "All"},
+                    {"value": "4", "label": "≤ Warning (4)"},
+                    {"value": "3", "label": "≤ Error (3)"},
+                    {"value": "2", "label": "≤ Critical (2)"},
+                    {"value": "0", "label": "Emergency only (0)"},
+                ],
+            }
+        ],
     },
     {
         "id": "error_rate",

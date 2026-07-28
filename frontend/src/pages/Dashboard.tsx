@@ -73,10 +73,22 @@ function StatCard({ name, count, cfg }: { name: string; count: number; cfg: type
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
+const WINDOW_STORAGE_KEY = 'pktlog.dashboard.windowIdx'
+
+function loadStoredWindowIdx(): number {
+  const stored = Number(localStorage.getItem(WINDOW_STORAGE_KEY))
+  return Number.isInteger(stored) && stored >= 0 && stored < WINDOWS.length ? stored : 1
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [windowIdx, setWindowIdx] = useState(1) // default: 6h
+  const [windowIdx, setWindowIdx] = useState(loadStoredWindowIdx) // default: 6h, sticky across reloads
   const win = WINDOWS[windowIdx]
+
+  const selectWindow = (i: number) => {
+    setWindowIdx(i)
+    localStorage.setItem(WINDOW_STORAGE_KEY, String(i))
+  }
 
   const [stats, setStats] = useState<SyslogStats | null>(null)
   const [series, setSeries] = useState<SyslogTimeseriesPoint[]>([])
@@ -142,7 +154,7 @@ export default function Dashboard() {
           {WINDOWS.map((w, i) => (
             <button
               key={w.label}
-              onClick={() => setWindowIdx(i)}
+              onClick={() => selectWindow(i)}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
                 i === windowIdx
                   ? 'bg-blue-600 text-white font-medium'
