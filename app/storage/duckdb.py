@@ -392,47 +392,50 @@ class DuckDBBackend(StorageBackend):
 
     async def count_by_severity(self, hours: int = 24) -> list[dict]:
         def _query():
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            now_ts = datetime.now(tz=timezone.utc)
+            cutoff = now_ts - timedelta(hours=hours)
             with self._read_pool.acquire() as conn:
                 return conn.execute("""
                     SELECT severity, severity_name, COUNT(*) AS cnt
                     FROM syslog_events
-                    WHERE timestamp >= ?
+                    WHERE timestamp >= ? AND timestamp <= ?
                     GROUP BY severity, severity_name
                     ORDER BY severity ASC
-                """, [cutoff]).fetchall()
+                """, [cutoff, now_ts]).fetchall()
 
         rows = await self._read(_query) or []
         return [{"severity": r[0], "severity_name": r[1], "count": r[2]} for r in rows]
 
     async def count_by_host(self, hours: int = 24, limit: int = 20) -> list[dict]:
         def _query():
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            now_ts = datetime.now(tz=timezone.utc)
+            cutoff = now_ts - timedelta(hours=hours)
             with self._read_pool.acquire() as conn:
                 return conn.execute("""
                     SELECT source_ip, source_name, log_group, COUNT(*) AS cnt
                     FROM syslog_events
-                    WHERE timestamp >= ?
+                    WHERE timestamp >= ? AND timestamp <= ?
                     GROUP BY source_ip, source_name, log_group
                     ORDER BY cnt DESC
                     LIMIT ?
-                """, [cutoff, limit]).fetchall()
+                """, [cutoff, now_ts, limit]).fetchall()
 
         rows = await self._read(_query) or []
         return [{"source_ip": r[0], "source_name": r[1], "log_group": r[2], "count": r[3]} for r in rows]
 
     async def top_programs(self, hours: int = 24, limit: int = 20) -> list[dict]:
         def _query():
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            now_ts = datetime.now(tz=timezone.utc)
+            cutoff = now_ts - timedelta(hours=hours)
             with self._read_pool.acquire() as conn:
                 return conn.execute("""
                     SELECT program, COUNT(*) AS cnt
                     FROM syslog_events
-                    WHERE timestamp >= ? AND program != ''
+                    WHERE timestamp >= ? AND timestamp <= ? AND program != ''
                     GROUP BY program
                     ORDER BY cnt DESC
                     LIMIT ?
-                """, [cutoff, limit]).fetchall()
+                """, [cutoff, now_ts, limit]).fetchall()
 
         rows = await self._read(_query) or []
         return [{"program": r[0], "count": r[1]} for r in rows]
@@ -444,10 +447,11 @@ class DuckDBBackend(StorageBackend):
         log_group: Optional[str] = None,
     ) -> list[dict]:
         def _query():
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=hours)
+            now_ts = datetime.now(tz=timezone.utc)
+            cutoff = now_ts - timedelta(hours=hours)
             bucket_ms = bucket_minutes * 60 * 1000
             extra = "AND log_group = ?" if log_group else ""
-            params: list = [bucket_ms, bucket_ms, cutoff]
+            params: list = [bucket_ms, bucket_ms, cutoff, now_ts]
             if log_group:
                 params.append(log_group)
             with self._read_pool.acquire() as conn:
@@ -456,7 +460,7 @@ class DuckDBBackend(StorageBackend):
                         epoch_ms((epoch_ms(timestamp) // ?) * ?)::TIMESTAMPTZ AS bucket,
                         COUNT(*) AS cnt
                     FROM syslog_events
-                    WHERE timestamp >= ? {extra}
+                    WHERE timestamp >= ? AND timestamp <= ? {extra}
                     GROUP BY bucket
                     ORDER BY bucket ASC
                 """, params).fetchall()
