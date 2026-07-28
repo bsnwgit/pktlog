@@ -1,0 +1,114 @@
+# pktLog — Administrator Guide
+
+Covers installing, configuring, and operating pktLog. For day-to-day usage (Syslog Explorer, alerts, dashboard), see [USER_GUIDE.md](USER_GUIDE.md). See the [README](../README.md) for the full technical/API reference.
+
+## Installation
+
+Requires a fresh Ubuntu Server 22.04/24.04 LTS host with `sudo`, and Node.js 20.x LTS installed beforehand for the frontend build.
+
+```bash
+git clone https://github.com/bsnwgit/pktlog.git
+cd pktlog
+bash install.sh
+```
+
+Prompts for install directory (default `/opt/pktlog`) and app port (default `8768`), then handles system packages, ClickHouse, Python deps/schema, `config.yaml` + secret key, the admin user, one seeded collector entry (this host's own IP), the frontend build, and the systemd service. Prints the admin credentials at the end — save them.
+
+Open the firewall for the app port and the syslog ingest port (`8768/tcp`, `5514/tcp`+`udp` by default — confirm against your `config.yaml`, since the code default changed from `8761` to `5514` at one point and an older install may still use the previous value).
+
+## First-time setup checklist
+
+1. **Change the admin password.**
+2. **Register your syslog-sending devices as collectors** (Settings → Collectors). This is a hard ingest gate, not just labeling — a device sending syslog on the wire won't have anything persisted until it's added here and marked enabled; until then it only produces an unknown-collector alert with a one-click registration link.
+3. **Set the Timezone** (Settings → General) — this affects both UI display and how RFC 3164 timestamps (which carry no timezone marker of their own) are interpreted for storage. Get this right before you rely on timestamps for investigation; many real devices (UniFi APs/gateways observed in practice) log in local time, not UTC.
+4. **Configure alert notification channels** so the team hears about new/unknown collectors and anything else you set up rules for.
+5. **Set up backups** (Data → Backups) and confirm a manual run succeeds.
+6. **Create accounts** for your team with appropriate roles.
+
+## Users & roles
+
+`admin`, `analyst`, `viewer`. Manage at Settings → Security → Users (admin-only). If login breaks and you're locked out entirely, reset the admin password directly against the SQLite DB:
+
+```python
+import sqlite3, bcrypt
+conn = sqlite3.connect('<install_dir>/pktlog.db')
+new_hash = bcrypt.hashpw(b'NewPassword1!', bcrypt.gensalt()).decode()
+conn.execute("UPDATE users SET hashed_password=?, is_active=1 WHERE username='admin'", (new_hash,))
+conn.commit()
+```
+
+### Okta SAML SSO
+
+Settings → Security → Auth: paste Okta's IdP metadata XML (auto-fills SSO URL/Entity ID/certificate) or enter manually.
+
+### Auto-login fallback
+
+If you disable *both* Local auth and SAML SSO, the login page is skipped and the app auto-signs everyone in as the default admin (`POST /api/auth/auto-login`). Only appropriate for a trusted, access-controlled network — this removes the login prompt for anyone who can reach the UI at all.
+
+## Settings reference
+
+Top-level tabs: **General · Security (Users, Auth, Suite Integration, AI Assistant, SSL/TLS) · Data (Storage, Backups) · Notifications · User Keys · Collectors · Ingest**.
+
+| Tab | What it controls |
+|---|---|
+| General | App name, timezone (also governs RFC 3164 timestamp localization), Restart Service |
+| Security → Users | Accounts, roles (admin-only) |
+| Security → Auth | Local auth toggle, SAML SSO config |
+| Security → Suite Integration | Suite token for pktHub proxying |
+| Security → AI Assistant | Anthropic API key + model (Haiku/Sonnet/Opus) for the floating AI chat |
+| Security → SSL/TLS | HTTPS toggle, cert/key upload |
+| Data → Storage | Storage backend settings |
+| Data → Backups | Schedule, retention, manual trigger, restore |
+| Notifications | Slack, Email (SMTP), PagerDuty, generic Webhook, TraceCat SOAR — six channels total |
+| User Keys | Per-user IP-lookup provider keys (ipinfo.io, ipapi.is, AbuseIPDB, MXToolbox, IPQualityScore — IPQualityScore can be saved/tested but isn't consumed by the lookup endpoint yet) |
+| Collectors | Registered syslog sources — the ingest allowlist |
+| Ingest | Syslog listener configuration |
+
+## Collector registry (ingest gating)
+
+`app/ingest/normalizer.py`'s `enrich()` returns `None` — record dropped, never reaches storage — for any `collector_ip` not present and `enabled=1` in the collector registry. Register every real syslog source under Settings → Collectors before expecting its data to show up. An unregistered sender instead fires a `new_host`/"Unknown collector" alert with a one-click "Register collector →" link rather than silently vanishing without a trace.
+
+## Timestamp handling
+
+RFC 3164 syslog has no timezone marker in its timestamp. `_parse_ts_3164()` localizes the parsed naive datetime using the app's configured **Timezone** setting (Settings → General) before converting to UTC for storage — get this setting right, since many real devices log local time rather than UTC. `received_at` (always server-side UTC at receipt) is unaffected either way and is the reliable field to sanity-check against if timestamps ever look off. The parser also handles headerless/non-standard lines (e.g. UniFi CEF security events, kernel/wireless-driver debug lines with no syslog header at all) rather than dropping `source_ip`/`timestamp` for them.
+
+## Storage
+
+ClickHouse holds `pktlog.syslog_events` (18 columns, including `dest_ip` lifted from `DST=` KV pairs in netfilter/firewall-style lines — blank for lines without that concept, not broken). SQLite holds app config, auth, alerts, the collector registry, per-user API keys, and outbound integrations. Dashboard/severity-breakdown queries bound their time window on both ends (excluding future-timestamped rows from clock-skewed or malformed device timestamps) so a few bad records don't skew counts.
+
+## Backup & Restore
+
+Configure schedule, rotation, and path at Data → Backups (or trigger immediately with **Run Backup Now**). Each snapshot is a timestamped directory containing `pktlog.db`, `config.yaml`, and (if enabled) a ClickHouse `syslog_events` export.
+
+**Restoring:**
+- Every listed snapshot has a **Restore…** link — restores directly from that on-server snapshot, no download/upload needed. Expanding it shows a checkbox per file present, so you can restore just one piece instead of everything.
+- A full bundle can also be exported/imported as a `.tar.gz`, with the same per-file selection on upload.
+- Restoring `config.yaml` invalidates existing sessions and needs a service restart to actually apply.
+
+## Suite Integration (pktHub)
+
+Settings → Security → Suite Integration → copy the token, register in pktHub's App Manager. pktHub can then proxy pktLog with users already signed in, and can remotely lock this app's Settings page (shows a "remotely managed" banner here) or force all direct browser access into a redirect (`POST /api/suite/direct-access`). That lock auto-clears if pktHub goes unreachable for more than 5 minutes or is down at this app's startup, so a lock can't permanently strand admins out.
+
+There's also an **outbound** Integrations API (`app/api/integrations.py`) for named connections *from* pktLog *to* sibling pkt apps (pktipam/pktflow/pktsnmp/pktpcap/pktwifi/pkthub) — backend/DB only as of this writing, no consumer feature reads from it yet.
+
+## Notification channels
+
+Six channels, all configured on the Notifications tab and dispatched from `app/alerts/engine.py`: in-app, Slack, Email (SMTP), PagerDuty, generic Webhook, TraceCat SOAR. Enabling a channel doesn't send anything by itself — it makes it available to alert rules. **Send Test** performs a real dispatch with whatever's currently filled in, even unsaved.
+
+## Known deployment gotcha
+
+**A live systemd unit can drift silently from the repo template.** The repo's `pktlog.service` runs `ExecStart=<install_dir>/start.sh`, but an already-installed unit is a separate file on disk that only updates by re-running the relevant part of `install.sh` or reinstalling the unit — editing `start.sh` alone has no effect if the installed unit bypasses it with a direct `uvicorn ...` `ExecStart`. If a backend fix doesn't seem to take effect after a restart, compare `systemctl cat pktlog | grep ExecStart` against the repo's `pktlog.service` before assuming the code is wrong.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Service won't start | `journalctl -u pktlog -n 50`; check `config.yaml` paths and secret key |
+| A device is sending syslog but nothing shows up | Is it registered and enabled under Settings → Collectors? Check for an "Unknown collector" alert instead |
+| Timestamps look shifted by a fixed offset | Check the Timezone setting (Settings → General) against how the sending device actually logs (local time vs. UTC) |
+| Locked out of every account | Reset the admin password directly against SQLite (see Users & roles above) |
+| A restored `config.yaml` didn't take effect | Restart the service — restoring never does this automatically |
+
+## Upgrading
+
+Pull the latest code, rebuild the frontend if you build manually (`cd frontend && npm install && npm run build`), then restart the service. Database/schema migrations run automatically on startup.
