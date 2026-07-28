@@ -14,11 +14,15 @@ function PageFallback() {
   return <div className="flex items-center justify-center h-48 text-white">Loading…</div>
 }
 
+// Embedded via pkthub's remote-settings iframe (?chromeless=1) — hide the
+// sidebar/header, just render the page content.
+const isChromeless = new URLSearchParams(window.location.search).get('chromeless') === '1'
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
   if (isLoading) return <PageFallback />
   if (!user) return <Navigate to="/login" replace />
-  return <Layout>{children}</Layout>
+  return <Layout chromeless={isChromeless}>{children}</Layout>
 }
 
 

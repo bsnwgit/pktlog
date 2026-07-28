@@ -193,7 +193,7 @@ class ClickHouseBackend(StorageBackend):
         q = """
             SELECT severity, severity_name, count() AS cnt
             FROM syslog_events
-            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR
+            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR AND timestamp <= now()
             GROUP BY severity, severity_name
             ORDER BY severity ASC
         """
@@ -204,7 +204,7 @@ class ClickHouseBackend(StorageBackend):
         q = """
             SELECT source_ip, source_name, log_group, count() AS cnt
             FROM syslog_events
-            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR
+            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR AND timestamp <= now()
             GROUP BY source_ip, source_name, log_group
             ORDER BY cnt DESC
             LIMIT %(limit)s
@@ -216,7 +216,7 @@ class ClickHouseBackend(StorageBackend):
         q = """
             SELECT program, count() AS cnt
             FROM syslog_events
-            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR
+            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR AND timestamp <= now()
               AND program != ''
             GROUP BY program
             ORDER BY cnt DESC
@@ -237,7 +237,7 @@ class ClickHouseBackend(StorageBackend):
                 toStartOfInterval(timestamp, INTERVAL %(bucket)s MINUTE) AS bucket,
                 count() AS cnt
             FROM syslog_events
-            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR
+            WHERE timestamp >= now() - INTERVAL %(hours)s HOUR AND timestamp <= now()
             {extra}
             GROUP BY bucket
             ORDER BY bucket ASC
