@@ -199,6 +199,37 @@ async def set_hub_redirect_url(request: Request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.post("/settings-lock")
+async def set_settings_lock(request: Request, user: CurrentUser):
+    """
+    Called by pktHub on register/deregister to flag whether this app's
+    Settings page should show a "remotely managed" banner and disable local
+    editing. Narrower than a whole-app direct-access lock — everything else
+    in the app keeps working normally, only the Settings UI is affected.
+    Body: {"locked": true|false}
+    """
+    from app.config import get_settings
+    import aiosqlite, json
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    locked = bool(body.get("locked"))
+    settings = get_settings()
+    try:
+        async with aiosqlite.connect(settings.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('hub_settings_managed', ?)",
+                (json.dumps(locked),)
+            )
+            await db.commit()
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    return JSONResponse({"hub_settings_managed": locked})
+
+
 @router.get("/whoami")
 async def suite_whoami(user: CurrentUser):
     """
