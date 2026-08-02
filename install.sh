@@ -97,6 +97,7 @@ else
     cp -r "$REPO_DIR/app"         "$INSTALL_DIR/"
     cp -r "$REPO_DIR/migrations"  "$INSTALL_DIR/"
     cp -r "$REPO_DIR/clickhouse"  "$INSTALL_DIR/"
+    cp -r "$REPO_DIR/docs"        "$INSTALL_DIR/"
     cp "$REPO_DIR/start.sh"       "$INSTALL_DIR/"
 fi
 chmod +x "$INSTALL_DIR/start.sh"
