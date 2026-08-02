@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+from urllib.parse import quote
 
 import aiosqlite
 import httpx
@@ -45,6 +46,9 @@ class IpInfoResult(BaseModel):
     mxtoolbox_error: str | None = None
     mxtoolbox_enabled_fields: list[str] | None = None  # None = not customized, show everything
     mxtoolbox_enabled: bool = True
+    ipqualityscore: dict | None = None
+    ipqualityscore_error: str | None = None
+    ipqualityscore_enabled: bool = True
 
 
 class InternalIpInfoResult(BaseModel):
@@ -155,6 +159,21 @@ async def _fetch_ipapi_is(client: httpx.AsyncClient, ip: str, key: str, free_tie
         result.ipapi_is_error = f"Request error: {exc}"
 
 
+async def _fetch_ipqualityscore(client: httpx.AsyncClient, ip: str, key: str, result: IpInfoResult) -> None:
+    if not key:
+        result.ipqualityscore_error = "No IPQualityScore key configured — add one in Settings → API Keys"
+        return
+    try:
+        resp = await client.get(f"https://ipqualityscore.com/api/json/ip/{quote(key, safe='')}/{ip}")
+        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        if resp.status_code == 200 and data.get("success"):
+            result.ipqualityscore = data
+        else:
+            result.ipqualityscore_error = data.get("message") or f"IPQualityScore returned HTTP {resp.status_code}"
+    except httpx.RequestError as exc:
+        result.ipqualityscore_error = f"Request error: {exc}"
+
+
 async def _fetch_abuseipdb(client: httpx.AsyncClient, ip: str, key: str, result: IpInfoResult) -> None:
     if not key:
         result.abuseipdb_error = "No AbuseIPDB key configured — add one in Settings → API Keys"
@@ -224,6 +243,7 @@ async def get_ip_info(ip: str, user: CurrentUser):
     ipapi_is_key = await _get_user_key(user["username"], "ipapi_is")
     abuseipdb_key = await _get_user_key(user["username"], "abuseipdb")
     mxtoolbox_key = await _get_user_key(user["username"], "mxtoolbox")
+    ipqualityscore_key = await _get_user_key(user["username"], "ipqualityscore")
     result.ipinfo_enabled_fields = await _get_ipinfo_enabled_fields(user["username"])
     result.ipapi_is_enabled_fields = await _get_ipapi_is_enabled_fields(user["username"])
     result.mxtoolbox_enabled_fields = await _get_mxtoolbox_enabled_fields(user["username"])
@@ -232,6 +252,7 @@ async def get_ip_info(ip: str, user: CurrentUser):
     result.ipapi_is_enabled = await _get_provider_enabled(user["username"], "ipapi_is")
     result.abuseipdb_enabled = await _get_provider_enabled(user["username"], "abuseipdb")
     result.mxtoolbox_enabled = await _get_provider_enabled(user["username"], "mxtoolbox")
+    result.ipqualityscore_enabled = await _get_provider_enabled(user["username"], "ipqualityscore")
 
     async with httpx.AsyncClient(timeout=10) as client:
         tasks = []
@@ -243,6 +264,8 @@ async def get_ip_info(ip: str, user: CurrentUser):
             tasks.append(_fetch_abuseipdb(client, ip, abuseipdb_key, result))
         if result.mxtoolbox_enabled:
             tasks.append(_fetch_mxtoolbox(client, ip, mxtoolbox_key, result))
+        if result.ipqualityscore_enabled:
+            tasks.append(_fetch_ipqualityscore(client, ip, ipqualityscore_key, result))
         if tasks:
             await asyncio.gather(*tasks)
 

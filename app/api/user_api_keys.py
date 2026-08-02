@@ -212,7 +212,7 @@ async def set_ipapi_is_fields(body: FieldsIn, user: CurrentUser):
         )
         await db.commit()
         async with db.execute(
-            "SELECT api_key, updated_at, enabled_fields, enabled FROM user_api_keys WHERE username = ? AND provider = 'ipapi_is'",
+            "SELECT api_key, updated_at, enabled_fields, free_tier, enabled FROM user_api_keys WHERE username = ? AND provider = 'ipapi_is'",
             (user["username"],),
         ) as cur:
             row = await cur.fetchone()
@@ -223,6 +223,7 @@ async def set_ipapi_is_fields(body: FieldsIn, user: CurrentUser):
         api_key=row["api_key"],
         updated_at=row["updated_at"],
         enabled_fields=json.loads(row["enabled_fields"]) if row["enabled_fields"] else None,
+        free_tier=bool(row["free_tier"]),
         enabled=bool(row["enabled"]),
     )
 
@@ -276,9 +277,15 @@ async def set_api_key(provider: str, body: ApiKeyIn, user: CurrentUser):
                 (user["username"], provider, key),
             )
         else:
-            # Empty key means "clear" — delete the row instead of storing "".
+            # Empty key means "clear" the key — but keep the row (if it
+            # exists) rather than deleting it outright, so any other stored
+            # preference for this provider (enabled/enabled_fields/free_tier)
+            # survives clearing/re-saving a blank key.
             await db.execute(
-                "DELETE FROM user_api_keys WHERE username = ? AND provider = ?",
+                """INSERT INTO user_api_keys (username, provider, api_key, updated_at)
+                   VALUES (?, ?, '', datetime('now'))
+                   ON CONFLICT (username, provider)
+                   DO UPDATE SET api_key = '', updated_at = excluded.updated_at""",
                 (user["username"], provider),
             )
         await db.commit()
