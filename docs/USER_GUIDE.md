@@ -10,7 +10,7 @@ Roles: `admin` (full access), `analyst` (read + export), `viewer` (read-only).
 
 ## Navigation
 
-**Dashboard**, **Syslog Explorer**, **Alerts**, **Logs**. **Settings** appears only for admins.
+**Dashboard**, **Syslog Explorer**, **Alerts**, **Logs**, **Settings**. Settings is reachable by every role — the page itself hides admin-only tabs (Users, etc.) from analysts and viewers rather than hiding the whole page.
 
 ## Dashboard
 
@@ -35,6 +35,8 @@ Any IP shown anywhere in the app is clickable, opening a lookup combining ipinfo
 ## Getting help in the app
 
 A **?** button near almost every page and Settings section opens a short explanation of what that feature does and anything non-obvious about its behavior.
+
+For longer-form documentation, click **Documentation** in the sidebar (just above your account info) — it opens this guide and the Administrator Guide as in-app tabs, so you don't need the repo checked out to read them.
 
 ## Your account
 
