@@ -63,6 +63,8 @@ function IpInfoModal({ ip, onClose }: { ip: string; onClose: () => void }) {
 
   const score = data?.abuseipdb?.abuseConfidenceScore as number | undefined
   const scoreColor = score === undefined ? '' : score >= 50 ? 'text-red-400' : score >= 20 ? 'text-yellow-400' : 'text-green-400'
+  const fraudScore = data?.ipqualityscore?.fraud_score as number | undefined
+  const fraudScoreColor = fraudScore === undefined ? '' : fraudScore >= 75 ? 'text-red-400' : fraudScore >= 50 ? 'text-yellow-400' : 'text-green-400'
   const showIpinfoField = (f: string) => !data?.ipinfo_enabled_fields || data.ipinfo_enabled_fields.includes(f)
   const showIpapiIsField = (f: string) => !data?.ipapi_is_enabled_fields || data.ipapi_is_enabled_fields.includes(f)
   const showMxtoolboxField = (f: string) => !data?.mxtoolbox_enabled_fields || data.mxtoolbox_enabled_fields.includes(f)
@@ -260,6 +262,39 @@ function IpInfoModal({ ip, onClose }: { ip: string; onClose: () => void }) {
                       <Row label="Usage Type" value={data.abuseipdb?.usageType} />
                       <Row label="Domain" value={data.abuseipdb?.domain} />
                       <Row label="Last Reported" value={data.abuseipdb?.lastReportedAt} />
+                    </div>
+                  )}
+              </div>
+              )}
+
+              {data.ipqualityscore_enabled && (
+              <div>
+                <SectionTitle>IPQUALITYSCORE</SectionTitle>
+                {data.ipqualityscore_error
+                  ? <ProviderError msg={data.ipqualityscore_error} />
+                  : (
+                    <div>
+                      <div className="flex justify-between items-start py-1.5 border-b border-gray-800">
+                        <span className="text-xs text-white shrink-0 w-32">Fraud Score</span>
+                        <span className={`text-sm font-semibold text-right ${fraudScoreColor}`}>{fraudScore ?? '—'}</span>
+                      </div>
+                      <Row label="Country" value={data.ipqualityscore?.country_code} />
+                      <Row label="Region" value={data.ipqualityscore?.region} />
+                      <Row label="City" value={data.ipqualityscore?.city} />
+                      <Row label="ISP" value={data.ipqualityscore?.ISP} />
+                      <Row label="Organization" value={data.ipqualityscore?.organization} />
+                      <Row label="ASN" value={data.ipqualityscore?.ASN} />
+                      <Row label="Connection Type" value={data.ipqualityscore?.connection_type} />
+                      <Row
+                        label="Detection"
+                        value={[
+                          data.ipqualityscore?.proxy && 'Proxy',
+                          data.ipqualityscore?.vpn && 'VPN',
+                          data.ipqualityscore?.tor && 'Tor',
+                          data.ipqualityscore?.recent_abuse && 'Recent Abuse',
+                          data.ipqualityscore?.bot_status && 'Bot',
+                        ].filter(Boolean).join(', ') || 'None detected'}
+                      />
                     </div>
                   )}
               </div>

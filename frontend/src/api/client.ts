@@ -332,6 +332,9 @@ export interface IpInfoResult {
   mxtoolbox_error: string | null
   mxtoolbox_enabled_fields: string[] | null
   mxtoolbox_enabled: boolean
+  ipqualityscore: Record<string, any> | null
+  ipqualityscore_error: string | null
+  ipqualityscore_enabled: boolean
 }
 
 export interface Integration {
