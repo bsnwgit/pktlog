@@ -91,6 +91,15 @@ Settings → Security → Suite Integration → copy the token, register in pktH
 
 There's also an **outbound** Integrations API (`app/api/integrations.py`) for named connections *from* pktLog *to* sibling pkt apps (pktipam/pktflow/pktsnmp/pktpcap/pktwifi/pkthub) — backend/DB only as of this writing, no consumer feature reads from it yet.
 
+## Alert engine
+
+Rule types, grouped as they appear in the New Rule picker:
+
+| Group | Rule types |
+|---|---|
+| Volume | Threshold, Rate spike (vs. rolling baseline), Top talker |
+| Infrastructure | Data gap (silent collector), New host (unrecognized collector), Ingest rate low, ClickHouse table size |
+
 ## Notification channels
 
 Six channels, all configured on the Notifications tab and dispatched from `app/alerts/engine.py`: in-app, Slack, Email (SMTP), PagerDuty, generic Webhook, TraceCat SOAR. Enabling a channel doesn't send anything by itself — it makes it available to alert rules. **Send Test** performs a real dispatch with whatever's currently filled in, even unsaved.

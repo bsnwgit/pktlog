@@ -202,6 +202,21 @@ export default function Layout({ children, chromeless = false }: { children: Rea
           ))}
         </nav>
 
+        <div className="px-2 pt-2">
+          <NavLink
+            to="/documentation"
+            className={({ isActive }) => clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+              isActive
+                ? 'bg-blue-600/20 text-blue-300 font-medium'
+                : 'text-white hover:text-white hover:bg-gray-800',
+            )}
+          >
+            <span className="text-base leading-none">❐</span>
+            <span>Documentation</span>
+          </NavLink>
+        </div>
+
         <div className="px-3 py-3 border-t border-gray-800">
           <div className="flex items-center gap-2 px-2 py-1.5">
             <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
