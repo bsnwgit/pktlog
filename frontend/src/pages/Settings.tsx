@@ -413,7 +413,7 @@ function MetadataPasteBox({ onParsed }: {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-type TabId = 'general' | 'security' | 'data' | 'notifications' | 'apikeys' | 'devices' | 'ingest'
+type TabId = 'general' | 'security' | 'data' | 'notifications' | 'apikeys' | 'system' | 'devices' | 'ingest'
 
 const TABS: Array<{ id: TabId; label: string; adminOnly?: boolean; gapBefore?: boolean }> = [
   { id: 'general',       label: 'General' },
@@ -421,8 +421,44 @@ const TABS: Array<{ id: TabId; label: string; adminOnly?: boolean; gapBefore?: b
   { id: 'data',          label: 'Data' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'apikeys',       label: 'User Keys' },
+  { id: 'system',        label: 'System' },
   { id: 'devices',       label: 'Collectors', gapBefore: true },
   { id: 'ingest',        label: 'Ingest' },
+]
+
+// ── System tab — open-source notices ──────────────────────────────────────────
+const OSS_NOTICES: Array<{ name: string; license: string }> = [
+  { name: 'FastAPI',            license: 'MIT' },
+  { name: 'Uvicorn',            license: 'BSD-3-Clause' },
+  { name: 'python-multipart',   license: 'Apache-2.0' },
+  { name: 'Pydantic',           license: 'MIT' },
+  { name: 'ClickHouse Driver',  license: 'MIT' },
+  { name: 'DuckDB',             license: 'MIT' },
+  { name: 'SQLAlchemy',         license: 'MIT' },
+  { name: 'aiosqlite',          license: 'MIT' },
+  { name: 'Alembic',            license: 'MIT' },
+  { name: 'python-jose',        license: 'MIT' },
+  { name: 'passlib',            license: 'BSD-2-Clause' },
+  { name: 'Authlib',            license: 'BSD-3-Clause' },
+  { name: 'itsdangerous',       license: 'BSD-3-Clause' },
+  { name: 'httpx',              license: 'BSD-3-Clause' },
+  { name: 'python3-saml',       license: 'MIT' },
+  { name: 'APScheduler',        license: 'MIT' },
+  { name: 'PyYAML',             license: 'MIT' },
+  { name: 'python-dotenv',      license: 'BSD-3-Clause' },
+  { name: 'aiosmtplib',         license: 'MIT' },
+  { name: 'Jinja2',             license: 'BSD-3-Clause' },
+  { name: 'Anthropic SDK',      license: 'MIT' },
+  { name: 'python-dateutil',    license: 'BSD / Apache-2.0' },
+  { name: 'React',              license: 'MIT' },
+  { name: 'React Router',       license: 'MIT' },
+  { name: 'Recharts',           license: 'MIT' },
+  { name: 'D3.js',              license: 'ISC' },
+  { name: 'Lucide Icons',       license: 'ISC' },
+  { name: 'clsx',               license: 'MIT' },
+  { name: 'Vite',               license: 'MIT' },
+  { name: 'Tailwind CSS',       license: 'MIT' },
+  { name: 'TypeScript',         license: 'Apache-2.0' },
 ]
 
 // ── Security tab — its own left-hand vertical tab strip ──────────────────────
@@ -802,6 +838,11 @@ export default function Settings() {
   const registerIp            = searchParams.get('register_ip') || ''
   const [settings, setSettings] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
+  const [systemInfo, setSystemInfo] = useState<{
+    app_name: string; version: string; install_dir: string
+    github: string; license: string; developer: string; contact: string
+  } | null>(null)
+  useEffect(() => { api.getSystemInfo().then(setSystemInfo).catch(() => {}) }, [])
   // Tracks whether the user has made unsaved edits.
   // silentLoad skips the refresh while dirty so in-progress form work isn't overwritten.
   const dirtyRef = useRef(false)
@@ -1681,6 +1722,69 @@ export default function Settings() {
           onLucidChange={v => set('lucid_api_token', v)}
           lucidSave={lucidSave}
         />
+      )}
+
+      {/* System — version/about info */}
+      {tab === 'system' && (
+        <div className="space-y-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-800 grid grid-cols-3 gap-4 items-center">
+              <h2 className="text-sm font-semibold text-white">System: {systemInfo?.app_name ?? 'pktLog'}</h2>
+              <div className="col-span-2">
+                <img src="logos/lockup-64h.png" alt={systemInfo?.app_name ?? 'pktLog'} className="h-8 w-auto" />
+              </div>
+            </div>
+            <div className="px-6 py-2">
+              <Field label="Version">
+                <p className="text-sm text-white font-mono">v{systemInfo?.version ?? '—'}</p>
+              </Field>
+              <Field label="Directory">
+                <p className="text-sm text-white font-mono break-all">{systemInfo?.install_dir ?? '—'}</p>
+              </Field>
+              <Field label="Github">
+                {systemInfo?.github ? (
+                  <a href={systemInfo.github} target="_blank" rel="noreferrer"
+                    className="text-sm text-blue-400 hover:text-blue-300 break-all">{systemInfo.github}</a>
+                ) : <p className="text-sm text-white">—</p>}
+              </Field>
+              <Field label="License">
+                <p className="text-sm text-white">{systemInfo?.license ?? '—'}</p>
+              </Field>
+              <Field label="Developer">
+                <p className="text-sm text-white">{systemInfo?.developer ?? '—'}</p>
+              </Field>
+              <Field label="Contact">
+                {systemInfo?.contact ? (
+                  <a href={`mailto:${systemInfo.contact}`}
+                    className="text-sm text-blue-400 hover:text-blue-300">{systemInfo.contact}</a>
+                ) : <p className="text-sm text-white">—</p>}
+              </Field>
+            </div>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-800">
+              <h2 className="text-sm font-semibold text-white">Licenses &amp; Copyright</h2>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-xs text-gray-400 mb-3">
+                {systemInfo?.app_name ?? 'pktLog'} is built with the following open-source software:
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs text-gray-300 font-mono">
+                {OSS_NOTICES.map(n => (
+                  <div key={n.name} className="flex justify-between gap-2">
+                    <span>{n.name}</span>
+                    <span className="text-gray-500">{n.license}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden px-6 py-6 flex items-center justify-center">
+            <img src="barsoftnetware-logo.png" alt="Barsoft Netware" className="h-56 w-auto" />
+          </div>
+        </div>
       )}
       </div>
     </div>
