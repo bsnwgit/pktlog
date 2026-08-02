@@ -195,6 +195,11 @@ export const api = {
 
   restartService: () =>
     request<{ status: string; message: string }>('/system/restart', { method: 'POST' }),
+  getSystemInfo: () =>
+    request<{
+      app_name: string; version: string; install_dir: string
+      github: string; license: string; developer: string; contact: string
+    }>('/system/info'),
   getPort: () =>
     request<{ port: number }>('/system/port'),
   setPort: (port: number) =>
