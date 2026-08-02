@@ -272,6 +272,11 @@ export const api = {
     return res.json()
   },
 
+  // ── Documentation ─────────────────────────────────────────────────────────
+  getDocs: () => request<{ slug: string; title: string }[]>('/docs-content'),
+  getDoc: (slug: string) =>
+    request<{ slug: string; title: string; content: string }>(`/docs-content/${slug}`),
+
   // ── App logs ──────────────────────────────────────────────────────────────
   getLogs: (params: LogQueryParams) =>
     request<LogResponse>(`/logs?${new URLSearchParams(params as any)}`),
