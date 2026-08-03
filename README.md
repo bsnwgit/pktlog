@@ -133,7 +133,7 @@ MXToolbox's other commands — email/DNS record checks (SPF, DMARC, DKIM, MX, DN
 
 ### AI Assistant
 
-A floating chat button (bottom corner, every page) opens a slide-in drawer backed by Claude (`POST /api/ai/chat`) — ask it to help interpret log volume, severity/facility patterns, or investigate an alert; it receives the current page's context (recent events, collector status, alert summaries) alongside the question. Requires an Anthropic API key configured at **Settings → Security → AI Assistant**, where the model (Haiku / Sonnet / Opus) is also selectable. Until a key is set, the assistant reports itself as not configured rather than failing silently.
+A floating chat button (bottom corner, every page) opens a slide-in drawer backed by whichever AI provider is enabled (`POST /api/ai/chat`) — ask it to help interpret log volume, severity/facility patterns, or investigate an alert; it receives the current page's context (recent events, collector status, alert summaries) alongside the question. Configure providers at **Settings → Security → AI Assistant**: local/self-hosted (Ollama, or any OpenAI-compatible endpoint) are tried first, then cloud (Anthropic — model Haiku/Sonnet/Opus selectable — and OpenAI), each with its own enable toggle. Until at least one is enabled and configured, the assistant reports itself as not configured rather than failing silently.
 
 ### Contextual help throughout the UI
 
@@ -176,7 +176,7 @@ See [requirements.txt](requirements.txt). Key dependencies:
 - `aiosqlite` — app database
 - `python-jose[cryptography]`, `passlib[bcrypt]` — JWT auth
 - `python3-saml`, `authlib` — SAML/OIDC SSO (Okta)
-- `anthropic` — AI assistant (optional, requires API key in Settings)
+- `anthropic` — AI assistant's Anthropic cloud provider (optional; the local/Ollama and OpenAI providers don't need it)
 
 ### Frontend
 
@@ -449,7 +449,7 @@ pktlog/
 │   │   │                     DNS/email records + active probes
 │   │   ├── user_api_keys.py Per-user external API key storage (AbuseIPDB/ipinfo.io/ipapi.is/
 │   │   │                     MXToolbox/IPQualityScore)
-│   │   ├── ai.py             AI Assistant chat (Claude via Anthropic API)
+│   │   ├── ai.py             AI Assistant chat (Ollama/local, Anthropic, or OpenAI)
 │   │   ├── ws.py             WebSocket for live dashboard/alert updates
 │   │   ├── widgets.py       Dashboard widgets
 │   │   └── pktlog.py        Misc endpoints
