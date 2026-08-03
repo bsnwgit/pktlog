@@ -55,7 +55,7 @@ Top-level tabs: **General · Security (Users, Auth, Suite Integration, AI Assist
 | Security → Users | Accounts, roles (admin-only) |
 | Security → Auth | Local auth toggle, SAML SSO config |
 | Security → Suite Integration | Suite token for pktHub proxying |
-| Security → AI Assistant | Anthropic API key + model (Haiku/Sonnet/Opus) for the floating AI chat |
+| Security → AI Assistant | Local/self-hosted (Ollama, OpenAI-compatible endpoints) + cloud (Anthropic — key + model Haiku/Sonnet/Opus, OpenAI) providers for the floating AI chat, each independently enabled; local tried first |
 | Security → SSL/TLS | HTTPS toggle, cert/key upload |
 | Data → Storage | Storage backend settings |
 | Data → Backups | Schedule, retention, manual trigger, restore |
