@@ -22,14 +22,21 @@ export default function AiAssistant({ context = {} }: AiAssistantProps) {
   const [input, setInput]         = useState('')
   const [loading, setLoading]     = useState(false)
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [providerName, setProviderName] = useState<string>('AI')
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Check if API key is configured
+  // Check if any provider (local or cloud) is enabled and configured
   useEffect(() => {
     if (!open || configured !== null) return
     api.getSettings().then(s => {
-      const key = s['anthropic_api_key'] as string
-      setConfigured(Boolean(key && key !== '••••••••'))
+      const ollamaReady = Boolean(s['ai_provider_ollama_enabled'] && s['ai_provider_ollama_base_url'])
+      const localProviders = Array.isArray(s['ai_local_providers']) ? s['ai_local_providers'] as Array<Record<string, unknown>> : []
+      const localReady = localProviders.some(p => p.enabled && p.base_url)
+      const anthropicKey = s['anthropic_api_key'] as string
+      const anthropicReady = s['ai_provider_anthropic_enabled'] !== false && Boolean(anthropicKey && anthropicKey !== '••••••••')
+      const openaiKey = s['openai_api_key'] as string
+      const openaiReady = Boolean(s['ai_provider_openai_enabled']) && Boolean(openaiKey && openaiKey !== '••••••••')
+      setConfigured(ollamaReady || localReady || anthropicReady || openaiReady)
     }).catch(() => setConfigured(false))
   }, [open])
 
@@ -57,6 +64,7 @@ export default function AiAssistant({ context = {} }: AiAssistantProps) {
         setMessages(m => [...m, { role: 'assistant', text: err.detail || 'Error', error: true }])
       } else {
         const data = await res.json()
+        if (data.provider) setProviderName(data.provider)
         setMessages(m => [...m, { role: 'assistant', text: data.answer }])
       }
     } catch (e) {
@@ -93,7 +101,7 @@ export default function AiAssistant({ context = {} }: AiAssistantProps) {
             <div className="flex items-center gap-2">
               <span className="text-blue-400 text-sm">✦</span>
               <span className="text-sm font-semibold text-white">AI Assistant</span>
-              <span className="text-xs text-white">Claude</span>
+              <span className="text-xs text-white">{providerName}</span>
             </div>
             {messages.length > 0 && (
               <button
@@ -109,8 +117,8 @@ export default function AiAssistant({ context = {} }: AiAssistantProps) {
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm">
             {configured === false && (
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-yellow-400 text-xs">
-                AI assistant not configured. Add your Anthropic API key in{' '}
-                <strong>Settings → General</strong>.
+                No AI provider is enabled. Turn one on (Ollama, a local endpoint, Anthropic, or OpenAI) in{' '}
+                <strong>Settings → AI Assistant</strong>.
               </div>
             )}
             {messages.length === 0 && configured !== false && (
