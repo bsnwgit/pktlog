@@ -4,6 +4,7 @@ SQLite async database engine for the pktFlow app sidecar DB
 """
 from __future__ import annotations
 
+import fcntl
 import aiosqlite
 from pathlib import Path
 from typing import AsyncGenerator
@@ -24,7 +25,30 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 
 
 async def init_db() -> None:
-    """Run migrations on startup. Safe to call multiple times (idempotent SQL)."""
+    """Run migrations on startup. Safe to call multiple times (idempotent SQL).
+
+    pktlog runs under uvicorn --workers 2 (start.sh) — unlike every other
+    pkt* app, which is single-process. That means this function's FastAPI
+    lifespan hook fires concurrently in two separate OS processes on every
+    restart, and any one-time data migration below (e.g.
+    _encrypt_legacy_api_keys) can run in both processes at once the first
+    time it executes, racing to UPDATE the same rows — a real SQLite
+    corruption vector, confirmed 2026-08-04. A plain asyncio.Lock doesn't
+    help since these are separate processes, not threads, so this takes a
+    real cross-process file lock for the whole migration body; the second
+    worker blocks here until the first finishes, then runs through the same
+    idempotent checks as a no-op."""
+    lock_path = Path(DB_PATH).with_suffix(".migrate.lock")
+    lock_file = open(lock_path, "w")
+    fcntl.flock(lock_file, fcntl.LOCK_EX)
+    try:
+        await _run_migrations()
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
+
+async def _run_migrations() -> None:
     migration_dir = Path(__file__).parent.parent / "migrations"
     migration_files = sorted(migration_dir.glob("*.sql"))
 
