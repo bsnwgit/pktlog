@@ -54,21 +54,11 @@ export default function AiAssistant({ context = {} }: AiAssistantProps) {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, context }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Request failed' }))
-        setMessages(m => [...m, { role: 'assistant', text: err.detail || 'Error', error: true }])
-      } else {
-        const data = await res.json()
-        if (data.provider) setProviderName(data.provider)
-        setMessages(m => [...m, { role: 'assistant', text: data.answer }])
-      }
-    } catch (e) {
-      setMessages(m => [...m, { role: 'assistant', text: 'Network error — could not reach AI service.', error: true }])
+      const data = await api.aiChat(q, context)
+      if (data.provider) setProviderName(data.provider)
+      setMessages(m => [...m, { role: 'assistant', text: data.answer }])
+    } catch (e: any) {
+      setMessages(m => [...m, { role: 'assistant', text: e.message || 'Network error — could not reach AI service.', error: true }])
     } finally {
       setLoading(false)
     }

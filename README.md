@@ -484,6 +484,12 @@ pktlog/
 
 ---
 
+## Known Issues & Quirks
+
+1. **AI Assistant chat said "Not authenticated" even with a provider configured — fixed 2026-08-03.** The chat request wasn't sending the session's auth token, so it failed pktLog's own login check before ever reaching the configured AI provider — unrelated to Ollama/Anthropic/OpenAI settings. Also fixed: connection/timeout failures reaching a provider used to show a blank error message; they now name the provider and its base URL.
+
+---
+
 ## Security Notes
 
 - Change `secret_key` in `config.yaml` (or `PKTLOG_SECRET_KEY` env var) before production use — `openssl rand -hex 32`
