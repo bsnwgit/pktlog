@@ -80,6 +80,43 @@ async def _run_migrations() -> None:
                 await conn.commit()
 
         await _encrypt_legacy_api_keys(conn)
+        await _encrypt_legacy_suite_tokens(conn)
+
+
+async def _encrypt_legacy_suite_tokens(conn: aiosqlite.Connection) -> None:
+    """One-time data migration: integrations.suite_token used to be stored
+    in plaintext. Encrypt any row that isn't already a valid Fernet token.
+    Tracked via _migrations (same table the .sql migrations use) so this
+    only does real work once. Runs inside _run_migrations(), which init_db()
+    already wraps in a cross-process lock — see that function's docstring."""
+    marker = "999_encrypt_legacy_suite_tokens.py"
+    async with conn.execute(
+        "SELECT 1 FROM _migrations WHERE filename = ?", (marker,)
+    ) as cur:
+        if await cur.fetchone():
+            return
+
+    from app.crypto import decrypt_str, encrypt_str
+
+    async with conn.execute(
+        "SELECT id, suite_token FROM integrations WHERE suite_token != ''"
+    ) as cur:
+        rows = await cur.fetchall()
+
+    for row_id, suite_token in rows:
+        try:
+            already_encrypted = bool(decrypt_str(suite_token))
+        except Exception:
+            already_encrypted = False
+        if already_encrypted:
+            continue
+        await conn.execute(
+            "UPDATE integrations SET suite_token = ? WHERE id = ?",
+            (encrypt_str(suite_token), row_id),
+        )
+
+    await conn.execute("INSERT INTO _migrations (filename) VALUES (?)", (marker,))
+    await conn.commit()
 
 
 async def _encrypt_legacy_api_keys(conn: aiosqlite.Connection) -> None:
