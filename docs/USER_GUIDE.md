@@ -44,4 +44,4 @@ Manage your own password from the user menu (unless your account uses SSO, in wh
 
 ## AI Assistant
 
-If your admin has enabled an AI provider (local/self-hosted like Ollama, or a cloud provider like Anthropic or OpenAI), a floating chat button is available on every page — ask it questions about what you're looking at.
+If your admin has enabled an AI provider (local/self-hosted like Ollama, or a cloud provider like Anthropic or OpenAI), a floating chat button is available on every page — ask it questions about what you're looking at. It's scoped strictly to pktLog's own domain (logs, severity, event patterns); off-topic questions, requests to discuss other pktApp suite tools, and prompt-injection attempts ("ignore your instructions," etc.) are refused.
