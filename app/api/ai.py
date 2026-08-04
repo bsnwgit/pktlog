@@ -258,4 +258,9 @@ async def chat(
         log.error(f"AI chat error ({provider['name']}): {e}")
         if provider["kind"] in ("anthropic", "openai") and ("authentication" in str(e).lower() or "api_key" in str(e).lower()):
             raise HTTPException(status_code=503, detail=f"Invalid {provider['name']} API key. Check Settings → AI Assistant.")
-        raise HTTPException(status_code=502, detail=f"{provider['name']} error: {str(e)[:200]}")
+        if isinstance(e, httpx.ConnectError):
+            raise HTTPException(status_code=502, detail=f"Could not reach {provider['name']} at {provider.get('base_url', 'its configured URL')}. Check it's running and the Base URL is correct.")
+        if isinstance(e, httpx.TimeoutException):
+            raise HTTPException(status_code=502, detail=f"{provider['name']} timed out. Check it's responsive at {provider.get('base_url', 'its configured URL')}.")
+        detail_msg = str(e) or f"{type(e).__name__} (no further detail from provider)"
+        raise HTTPException(status_code=502, detail=f"{provider['name']} error: {detail_msg[:200]}")
