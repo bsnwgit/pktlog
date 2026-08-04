@@ -55,7 +55,7 @@ Top-level tabs: **General · Security (Users, Auth, Suite Integration, AI Assist
 | Security → Users | Accounts, roles (admin-only) |
 | Security → Auth | Local auth toggle, SAML SSO config |
 | Security → Suite Integration | Suite token for pktHub proxying |
-| Security → AI Assistant | Local/self-hosted (Ollama, OpenAI-compatible endpoints) + cloud (Anthropic — key + model Haiku/Sonnet/Opus, OpenAI) providers for the floating AI chat, each independently enabled; local tried first |
+| Security → AI Assistant | Local/self-hosted (Ollama, OpenAI-compatible endpoints) + cloud (Anthropic — key + model Haiku/Sonnet/Opus, OpenAI) providers for the floating AI chat, each independently enabled; local tried first. Scoped strictly to pktLog's own domain — off-topic questions and prompt-injection/override attempts are refused server-side before ever reaching the provider |
 | Security → SSL/TLS | HTTPS toggle, cert/key upload |
 | Data → Storage | Storage backend settings |
 | Data → Backups | Schedule, retention, manual trigger, restore |
