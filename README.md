@@ -387,7 +387,7 @@ This can't permanently strand admins out of the UI: a heartbeat (refreshed on ev
 
 ### Outbound integrations (sibling apps)
 
-Separately from the inbound `suite_token` above, pktLog has a backend API (`/api/integrations`) for storing named, admin-managed connections *from* pktlog *to* other pkt* apps (pktIPAM, pktFlow, pktSNMP, pktPCAP, pktWiFi, pktHub) — same pattern as the equivalent feature in pktIPAM/pktFlow/pktWiFi. As of this writing there is no Settings tab exposing it and no feature actually consumes a configured connection yet; it exists as forward-looking scaffolding, not a working integration.
+Separately from the inbound `suite_token` above, pktLog has a backend API (`/api/integrations`) for storing named, admin-managed connections *from* pktlog *to* other pkt* apps (pktIPAM, pktFlow, pktSNMP, pktPCAP, pktWiFi, pktHub) — same pattern as the equivalent feature in pktIPAM/pktFlow/pktWiFi. As of this writing there is no Settings tab exposing it and no feature actually consumes a configured connection yet; it exists as forward-looking scaffolding, not a working integration. Each connection's `suite_token` is Fernet-encrypted at rest (`app/crypto.py`, the same `credential_key` used for user API keys) — decrypted only in memory when actually used to authenticate an outbound call.
 
 ---
 
@@ -489,6 +489,8 @@ pktlog/
 
 1. **AI Assistant chat said "Not authenticated" even with a provider configured — fixed 2026-08-03.** The chat request wasn't sending the session's auth token, so it failed pktLog's own login check before ever reaching the configured AI provider — unrelated to Ollama/Anthropic/OpenAI settings. Also fixed: connection/timeout failures reaching a provider used to show a blank error message; they now name the provider and its base URL.
 
+2. **One-time data migrations in `init_db()` must be lock-protected — root-caused and fixed 2026-08-04.** pktLog is the only pkt* app that runs `uvicorn --workers 2` (`start.sh`); every sibling app is single-process. FastAPI's startup lifespan — which runs `init_db()`, including any one-time data migration — fires independently in both worker processes on every restart. An unprotected migration (any function following the `SELECT` unencrypted rows → loop `UPDATE`-encrypting them pattern, e.g. `_encrypt_legacy_api_keys`/`_encrypt_legacy_suite_tokens`) can run in both processes at once the first time it ever executes, racing to write the same rows — this caused real, repeated `pktlog.db` corruption (`PRAGMA integrity_check` btree failures) on 2026-08-04. Fixed with a cross-process `fcntl.flock` around the entire migration body in `init_db()` (an `asyncio.Lock` would not help — these are separate OS processes, not threads). **Any new one-time migration added to this file is automatically protected as long as it's called from inside `_run_migrations()`/`init_db()`, same as the existing ones — don't add a migration that opens its own separate connection outside that lock.**
+
 ---
 
 ## Security Notes
@@ -499,3 +501,4 @@ pktlog/
 - **Don't disable both Local auth and SAML SSO** (Settings → Security → Auth) unless the UI is only reachable from a genuinely trusted network. With both off, the login page is skipped entirely and anyone who reaches it is auto-logged in as the designated default admin (`users.is_default_admin`, or the oldest active admin if none is flagged) via `POST /api/auth/auto-login` — there is intentionally no login prompt in that state
 - The pktSuite `suite_token` is a shared secret across pktHub/pktFlow/pktLog — never commit a real value to a tracked file, and rotating it requires updating it in all three services simultaneously
 - If a `config.yaml` with a real `secret_key` or `suite_token` is ever accidentally committed, treat both as compromised: rotate `secret_key` immediately (it only affects this service), but coordinate before rotating `suite_token` since it will break SSO for pktHub/pktFlow until updated everywhere
+- Outbound `integrations.suite_token` rows (see [Outbound integrations](#outbound-integrations-sibling-apps)) are Fernet-encrypted at rest using the same `credential_key` as user API keys — a legacy plaintext row is encrypted automatically, once, the next time the app starts
