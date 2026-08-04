@@ -3,8 +3,8 @@
 # then restart the service.
 #
 # install.sh generates config.yaml from this file automatically, fills in
-# secret_key, and appends install_dir — edit config.yaml afterwards for any
-# further changes.
+# secret_key + credential_key, and appends install_dir — edit config.yaml
+# afterwards for any further changes.
 #
 # install_dir is the app root. Every on-disk path below (db_path, journal_dir,
 # duckdb_path, log_file, ssl_dir) defaults to somewhere under install_dir and
@@ -49,6 +49,10 @@ syslog_port: 5514
 
 # ── JWT (generate with: openssl rand -hex 32) ─────────────────────────────────
 secret_key: "CHANGE_ME_generate_with_openssl_rand_hex_32"
+
+# ── Credential encryption key (generate with the Fernet command below) ───────
+# python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+credential_key: "CHANGE_ME_generate_with_fernet_generate_key"
 
 # ── CORS (restrict to your actual origin in production) ──────────────────────
 cors_origins:

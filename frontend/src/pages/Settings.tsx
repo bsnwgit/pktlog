@@ -618,7 +618,7 @@ function IntegrationFormModal({ integration, onClose, onSaved }: {
           <div>
             <label className="text-xs text-white block mb-1">Base URL *</label>
             <input value={form.base_url} onChange={e => setF('base_url', e.target.value)} required
-              placeholder="http://aiserver:8761" className={inp} />
+              placeholder="http://10.0.0.50:8761" className={inp} />
           </div>
           <div>
             <label className="text-xs text-white block mb-1">Suite Token {editing ? '(leave blank to keep)' : '*'}</label>
