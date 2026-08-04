@@ -54,3 +54,40 @@ async def init_db() -> None:
                     "INSERT INTO _migrations (filename) VALUES (?)", (mfile.name,)
                 )
                 await conn.commit()
+
+        await _encrypt_legacy_api_keys(conn)
+
+
+async def _encrypt_legacy_api_keys(conn: aiosqlite.Connection) -> None:
+    """One-time data migration: user_api_keys.api_key used to be stored in
+    plaintext. Encrypt any row that isn't already a valid Fernet token.
+    Tracked via _migrations (same table the .sql migrations use) so this
+    only does real work once."""
+    marker = "999_encrypt_legacy_user_api_keys.py"
+    async with conn.execute(
+        "SELECT 1 FROM _migrations WHERE filename = ?", (marker,)
+    ) as cur:
+        if await cur.fetchone():
+            return
+
+    from app.crypto import decrypt_str, encrypt_str
+
+    async with conn.execute(
+        "SELECT id, api_key FROM user_api_keys WHERE api_key != ''"
+    ) as cur:
+        rows = await cur.fetchall()
+
+    for row_id, api_key in rows:
+        try:
+            already_encrypted = bool(decrypt_str(api_key))
+        except Exception:
+            already_encrypted = False
+        if already_encrypted:
+            continue
+        await conn.execute(
+            "UPDATE user_api_keys SET api_key = ? WHERE id = ?",
+            (encrypt_str(api_key), row_id),
+        )
+
+    await conn.execute("INSERT INTO _migrations (filename) VALUES (?)", (marker,))
+    await conn.commit()
