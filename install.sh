@@ -109,6 +109,9 @@ if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
     # Generate a random secret key
     SECRET=$(openssl rand -hex 32)
     sed -i "s/CHANGE_ME_generate_with_openssl_rand_hex_32/$SECRET/" "$INSTALL_DIR/config.yaml"
+    # Generate a Fernet key for encrypting stored credentials at rest
+    CRED_KEY=$("$VENV/bin/python3" -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    sed -i "s#CHANGE_ME_generate_with_fernet_generate_key#$CRED_KEY#" "$INSTALL_DIR/config.yaml"
     sed -i "s/^port: 8768/port: $PORT/" "$INSTALL_DIR/config.yaml"
     # Pin install_dir explicitly (app/config.py derives every other path —
     # db, logs, ingest journal, ssl, backups — from this by default).
