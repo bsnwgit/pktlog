@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from app.database import DB_PATH
 from app.dependencies import CurrentUser
+from app.crypto import decrypt_str
 
 router = APIRouter()
 
@@ -43,7 +44,7 @@ async def _get_user_key(username: str, provider: str) -> str:
             (username, provider),
         ) as cur:
             row = await cur.fetchone()
-    return row[0] if row else ""
+    return decrypt_str(row[0]) if row else ""
 
 
 @router.post("/lookup")

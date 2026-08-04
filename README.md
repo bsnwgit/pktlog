@@ -127,7 +127,7 @@ Alongside `source_ip`, the syslog schema has a `dest_ip` column parsed from a `D
 
 Every public IP address shown anywhere in the UI (Syslog Explorer, Dashboard, Alerts) is clickable — it opens a lookup panel combining [ipinfo.io](https://ipinfo.io) (geolocation/ASN/hostname, plus company/privacy/abuse-contact on paid plans), [ipapi.is](https://ipapi.is) (geolocation, ASN/org, company, abuse contact, VPN/proxy/Tor/datacenter/abuser detection — all in one call, no plan gating), [AbuseIPDB](https://www.abuseipdb.com) (abuse confidence score, report history), and [MXToolbox](https://mxtoolbox.com) (reverse DNS/PTR, ASN, and a blacklist/RBL check) via `GET /api/ip-info/{ip}`, all four called concurrently. Private/loopback/link-local/multicast addresses aren't clickable — external providers have nothing useful to say about them.
 
-This is **per-user**, not a global app setting: each user adds their own API keys under **Settings → User Keys**, and lookups run under the logged-in user's own keys/quota. Five providers can have a key stored and tested there (AbuseIPDB, ipinfo.io, ipapi.is, MXToolbox, IPQualityScore), but only four of them are actually used by the lookup panel today — an IPQualityScore key can be saved and tested but isn't consumed anywhere yet.
+This is **per-user**, not a global app setting: each user adds their own API keys under **Settings → User Keys**, and lookups run under the logged-in user's own keys/quota. Keys are Fernet-encrypted at rest (`app/crypto.py`, using a dedicated `credential_key` — separate from `secret_key`, which only signs JWTs) — decrypted only in memory when a lookup runs or the owning user views their own key. Five providers can have a key stored and tested there (AbuseIPDB, ipinfo.io, ipapi.is, MXToolbox, IPQualityScore), but only four of them are actually used by the lookup panel today — an IPQualityScore key can be saved and tested but isn't consumed anywhere yet.
 
 MXToolbox's other commands — email/DNS record checks (SPF, DMARC, DKIM, MX, DNS, TXT, SOA, BIMI, MTA-STS, TLSRPT, A, AAAA) and active probes (ping, traceroute, TCP/HTTP/HTTPS/SMTP connect, run from MXToolbox's own infrastructure) — are reachable via `POST /api/mxtoolbox/lookup` (`{command, argument, port?}`) but aren't surfaced in the lookup panel yet; that's backend-only reach for now.
 
@@ -272,6 +272,7 @@ openssl rand -hex 32   # use this as secret_key
 | `clickhouse_database` | `pktlog` | ClickHouse database name |
 | `syslog_port` | `5514` | Syslog ingest port (UDP + TCP) |
 | `secret_key` | **CHANGE THIS** | JWT signing key (32+ random bytes) |
+| `credential_key` | **CHANGE THIS** | Fernet key encrypting stored secrets (user API keys) at rest — generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `cors_origins` | `["*"]` | Restrict to your dashboard origin in production |
 | `log_file` | `/opt/pktlog/logs/pktlog.log` | Log path |
 
