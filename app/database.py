@@ -4,6 +4,7 @@ SQLite async database engine for the pktFlow app sidecar DB
 """
 from __future__ import annotations
 
+import fcntl
 import aiosqlite
 from pathlib import Path
 from typing import AsyncGenerator
@@ -24,7 +25,30 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 
 
 async def init_db() -> None:
-    """Run migrations on startup. Safe to call multiple times (idempotent SQL)."""
+    """Run migrations on startup. Safe to call multiple times (idempotent SQL).
+
+    pktlog runs under uvicorn --workers 2 (start.sh) — unlike every other
+    pkt* app, which is single-process. That means this function's FastAPI
+    lifespan hook fires concurrently in two separate OS processes on every
+    restart, and any one-time data migration below (e.g.
+    _encrypt_legacy_api_keys) can run in both processes at once the first
+    time it executes, racing to UPDATE the same rows — a real SQLite
+    corruption vector, confirmed 2026-08-04. A plain asyncio.Lock doesn't
+    help since these are separate processes, not threads, so this takes a
+    real cross-process file lock for the whole migration body; the second
+    worker blocks here until the first finishes, then runs through the same
+    idempotent checks as a no-op."""
+    lock_path = Path(DB_PATH).with_suffix(".migrate.lock")
+    lock_file = open(lock_path, "w")
+    fcntl.flock(lock_file, fcntl.LOCK_EX)
+    try:
+        await _run_migrations()
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
+
+async def _run_migrations() -> None:
     migration_dir = Path(__file__).parent.parent / "migrations"
     migration_files = sorted(migration_dir.glob("*.sql"))
 
@@ -56,6 +80,43 @@ async def init_db() -> None:
                 await conn.commit()
 
         await _encrypt_legacy_api_keys(conn)
+        await _encrypt_legacy_suite_tokens(conn)
+
+
+async def _encrypt_legacy_suite_tokens(conn: aiosqlite.Connection) -> None:
+    """One-time data migration: integrations.suite_token used to be stored
+    in plaintext. Encrypt any row that isn't already a valid Fernet token.
+    Tracked via _migrations (same table the .sql migrations use) so this
+    only does real work once. Runs inside _run_migrations(), which init_db()
+    already wraps in a cross-process lock — see that function's docstring."""
+    marker = "999_encrypt_legacy_suite_tokens.py"
+    async with conn.execute(
+        "SELECT 1 FROM _migrations WHERE filename = ?", (marker,)
+    ) as cur:
+        if await cur.fetchone():
+            return
+
+    from app.crypto import decrypt_str, encrypt_str
+
+    async with conn.execute(
+        "SELECT id, suite_token FROM integrations WHERE suite_token != ''"
+    ) as cur:
+        rows = await cur.fetchall()
+
+    for row_id, suite_token in rows:
+        try:
+            already_encrypted = bool(decrypt_str(suite_token))
+        except Exception:
+            already_encrypted = False
+        if already_encrypted:
+            continue
+        await conn.execute(
+            "UPDATE integrations SET suite_token = ? WHERE id = ?",
+            (encrypt_str(suite_token), row_id),
+        )
+
+    await conn.execute("INSERT INTO _migrations (filename) VALUES (?)", (marker,))
+    await conn.commit()
 
 
 async def _encrypt_legacy_api_keys(conn: aiosqlite.Connection) -> None:
