@@ -3,6 +3,7 @@ FastAPI dependency injection helpers.
 """
 from __future__ import annotations
 
+import secrets
 from typing import Annotated, Optional
 
 import aiosqlite
@@ -49,7 +50,7 @@ async def get_current_user(
 
     # ── Path 1: pktHub suite token ────────────────────────────────────────────
     suite_token = request.headers.get("x-suite-token", "")
-    if suite_token and settings.suite_token and suite_token == settings.suite_token:
+    if suite_token and settings.suite_token and secrets.compare_digest(suite_token, settings.suite_token):
         hub_user = request.headers.get("x-suite-user", "hub_user")
         hub_role = request.headers.get("x-suite-role", "viewer")
         local_role = _SUITE_ROLE_MAP.get(hub_role, "analyst")
