@@ -14,17 +14,19 @@ GET  /api/suite/whoami   — authenticated identity check; a sibling pkt* app's
                            /api/health) so a wrong/revoked token fails the test
                            instead of silently reporting a healthy connection.
 """
+import secrets
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from app.dependencies import CurrentUser
+from app.dependencies import CurrentUser, AdminUser
 
 router = APIRouter()
 
 
 @router.get("/token")
-async def get_suite_token(request: Request):
-    """Return the current suite token. Lazily generates one if not set."""
+async def get_suite_token(request: Request, user: AdminUser):
+    """Return the current suite token. Lazily generates one if not set. Admin-only."""
     from app.config import get_settings
     import aiosqlite, secrets as _sec
     settings = get_settings()
@@ -56,9 +58,9 @@ async def get_suite_token(request: Request):
 
 
 @router.post("/register")
-async def suite_register(request: Request):
+async def suite_register(request: Request, user: AdminUser):
     """
-    Manual token override — stores a new suite token.
+    Manual token override — stores a new suite token. Admin-only.
     In the new flow pktHub no longer calls this automatically,
     but it remains available for manual correction.
     Body: {"suite_token": "<new_token>"}
@@ -88,9 +90,9 @@ async def suite_register(request: Request):
 
 
 @router.post("/regenerate")
-async def regenerate_suite_token(request: Request):
+async def regenerate_suite_token(request: Request, user: AdminUser):
     """
-    Replace the suite token with a freshly generated one.
+    Replace the suite token with a freshly generated one. Admin-only.
     Use when you need to revoke current pktHub access.
     After calling this, re-register the app in pktHub with the new token.
     """
@@ -118,7 +120,7 @@ async def set_direct_access(request: Request):
     settings = get_settings()
     suite_token = request.headers.get("x-suite-token", "")
     _stored_token = settings.suite_token  # get_settings() is uncached, JSON-decoded
-    if not suite_token or not _stored_token or suite_token != _stored_token:
+    if not suite_token or not _stored_token or not secrets.compare_digest(suite_token, _stored_token):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         body = await request.json()
@@ -146,7 +148,7 @@ async def get_direct_access(request: Request):
     settings = get_settings()
     suite_token = request.headers.get("x-suite-token", "")
     _stored_token = settings.suite_token  # get_settings() is uncached, JSON-decoded
-    if not suite_token or not _stored_token or suite_token != _stored_token:
+    if not suite_token or not _stored_token or not secrets.compare_digest(suite_token, _stored_token):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
         async with _aio.connect(settings.db_path) as db:
@@ -182,7 +184,7 @@ async def get_mode():
 
 
 @router.patch("/hub-redirect-url")
-async def set_hub_redirect_url(request: Request):
+async def set_hub_redirect_url(request: Request, user: CurrentUser):
     """Set hub_redirect_url. Regular session auth (not suite token required)."""
     from app.config import get_settings
     import aiosqlite as _aio

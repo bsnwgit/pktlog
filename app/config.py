@@ -71,6 +71,22 @@ _CONFIG_PATH = _find_config_path()
 _yaml_cfg = _load_yaml(_CONFIG_PATH)
 _INSTALL_DIR = _default_install_dir(_CONFIG_PATH)
 
+# The insecure defaults shipped in this file / config.example.yaml —
+# startup must refuse to run with either of them (or an empty value) rather
+# than silently signing JWTs / encrypting secrets with a publicly-known key.
+# Two distinct placeholder strings exist for secret_key: this module's own
+# in-code fallback (used when the key is entirely absent from config.yaml)
+# and config.example.yaml's placeholder text (what's actually in config.yaml
+# if an operator copied that file without editing it) — checking only one
+# leaves the other route to a publicly-known secret unguarded.
+SECRET_KEY_PLACEHOLDER = "CHANGE_ME_IN_PRODUCTION_secret_key_32chars"
+_INSECURE_SECRET_KEY_VALUES = {
+    "", SECRET_KEY_PLACEHOLDER, "CHANGE_ME_generate_with_openssl_rand_hex_32",
+}
+_INSECURE_CREDENTIAL_KEY_VALUES = {
+    "", "CHANGE_ME_generate_with_fernet_generate_key",
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -115,7 +131,7 @@ class Settings(BaseSettings):
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     secret_key: str = Field(
-        default=_yaml_cfg.get("secret_key", "CHANGE_ME_IN_PRODUCTION_secret_key_32chars")
+        default=_yaml_cfg.get("secret_key", SECRET_KEY_PLACEHOLDER)
     )
     algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = 15
@@ -147,9 +163,38 @@ class Settings(BaseSettings):
     ssl_dir: str = Field(default=_yaml_cfg.get("ssl_dir", str(_INSTALL_DIR / "ssl")))
 
 
+def _validate_secret_key(s: "Settings") -> None:
+    """
+    Fail loudly at startup rather than silently signing JWTs / encrypting
+    secrets with a publicly-known key. A missing/blank secret_key or
+    credential_key, or one still equal to a shipped placeholder, is treated
+    as misconfiguration — not something to paper over with a default.
+    """
+    key = (s.secret_key or "").strip()
+    if key in _INSECURE_SECRET_KEY_VALUES:
+        raise RuntimeError(
+            "pktLog refuses to start: secret_key is missing or still set to a "
+            "placeholder value from config.example.yaml. This value must never "
+            "be used to sign real JWTs. Set a real, unique secret_key in "
+            "config.yaml (or the PKTLOG_SECRET_KEY environment variable) — "
+            "`openssl rand -hex 32` generates one."
+        )
+    cred_key = (s.credential_key or "").strip()
+    if cred_key in _INSECURE_CREDENTIAL_KEY_VALUES:
+        raise RuntimeError(
+            "pktLog refuses to start: credential_key is missing or still set to "
+            "a placeholder value from config.example.yaml. Set a real, unique "
+            "credential_key in config.yaml — "
+            "`python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"` "
+            "generates one."
+        )
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    _validate_secret_key(s)
+    return s
 
 
 # suite_token_from_sqlite_patch — reads token from SQLite so /api/suite/register
@@ -158,6 +203,7 @@ _patched_get_settings = get_settings  # noqa: save original if it exists
 
 def get_settings() -> Settings:  # type: ignore[misc]
     s = Settings()
+    _validate_secret_key(s)
     try:
         import sqlite3 as _sq, json as _j
         _db_path = s.db_path
