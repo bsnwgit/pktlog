@@ -346,6 +346,26 @@ def _parse_files_param(files: Optional[str]) -> Optional[set[str]]:
     return {f.strip() for f in files.split(",") if f.strip()}
 
 
+def _safe_tar_extractall(tar: tarfile.TarFile, dest: Path) -> None:
+    """
+    Extract a tar archive while refusing any member whose resolved path would
+    land outside `dest` (path traversal via '../', absolute paths, or symlink
+    tricks — CVE-2007-4559-style). Raises ValueError on the first bad member.
+    """
+    dest_resolved = dest.resolve()
+    for member in tar.getmembers():
+        member_path = (dest / member.name).resolve()
+        if member_path != dest_resolved and dest_resolved not in member_path.parents:
+            raise ValueError(f"Unsafe path in archive member: {member.name!r}")
+        # Also reject symlinks/hardlinks whose link target escapes dest.
+        if member.issym() or member.islnk():
+            link_target = (dest / member.name).parent / member.linkname
+            link_target = link_target.resolve()
+            if link_target != dest_resolved and dest_resolved not in link_target.parents:
+                raise ValueError(f"Unsafe link target in archive member: {member.name!r}")
+    tar.extractall(dest)
+
+
 @router.post("/import", dependencies=[Depends(require_admin)])
 async def import_bundle(file: UploadFile = File(...), files: Optional[str] = Form(None)):
     """
@@ -366,7 +386,7 @@ async def import_bundle(file: UploadFile = File(...), files: Optional[str] = For
 
             try:
                 with tarfile.open(str(archive_path), "r:gz") as tar:
-                    tar.extractall(tmp_path)
+                    _safe_tar_extractall(tar, tmp_path)
             except Exception as e:
                 return {"error": f"Failed to extract archive: {e}"}
 

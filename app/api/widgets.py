@@ -6,6 +6,7 @@ Views:    GET /widgets/{widget_type}  → server-rendered HTML page (iframe targ
 """
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 import aiosqlite
@@ -195,9 +196,9 @@ async def widget_log_stream():
             parts.append(
                 f"<div class='log-row'>"
                 f"<span class='sev sev-{sev}'>{label}</span>"
-                f"<span class='ts'>{_fmt_ts(r.get('ts',''))}</span>"
-                f"<span class='host'>{str(r.get('host') or '')[:20]}</span>"
-                f"<span class='msg'>{str(r.get('msg') or '')[:200]}</span>"
+                f"<span class='ts'>{html.escape(_fmt_ts(r.get('ts','')))}</span>"
+                f"<span class='host'>{html.escape(str(r.get('host') or '')[:20])}</span>"
+                f"<span class='msg'>{html.escape(str(r.get('msg') or '')[:200])}</span>"
                 f"</div>"
             )
         content = "".join(parts)
@@ -332,11 +333,11 @@ async def widget_alert_events():
             sev_int = min(7, max(0, sev_int))
             color = SEV_COLORS.get(sev_int, "#94a3b8")
             label = _SEV_LABELS.get(sev_int, "ERR")
-            rule = str(r.get("rule_name") or "")[:24]
-            msg = str(r.get("msg") or "")[:80]
+            rule = html.escape(str(r.get("rule_name") or "")[:24])
+            msg = html.escape(str(r.get("msg") or "")[:80])
             trs.append(
                 f"<tr>"
-                f"<td style='font-size:10px;color:#475569'>{_fmt_ts(r.get('ts',''))}</td>"
+                f"<td style='font-size:10px;color:#475569'>{html.escape(_fmt_ts(r.get('ts','')))}</td>"
                 f"<td><span class='badge' style='background:#1e293b;color:{color}'>{label}</span></td>"
                 f"<td style='color:#60a5fa;font-size:11px'>{rule}</td>"
                 f"<td style='color:#e2e8f0'>{msg}</td>"
@@ -404,10 +405,10 @@ async def widget_log_sources():
     if rows:
         trs = []
         for r in rows:
-            host = r.get("hostname") or r.get("ip") or "—"
-            ip = r.get("ip", "")
+            host = html.escape(str(r.get("hostname") or r.get("ip") or "—"))
+            ip = html.escape(str(r.get("ip", "")))
             msgs = f"{r.get('msg_count') or 0:,}"
-            seen = _ts(r.get("last_seen", ""))
+            seen = html.escape(_ts(r.get("last_seen", "")))
             trs.append(
                 f"<tr><td>{host}</td>"
                 f"<td style='font-family:monospace;font-size:11px;color:#475569'>{ip}</td>"
