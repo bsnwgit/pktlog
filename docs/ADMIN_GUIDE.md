@@ -47,22 +47,26 @@ If you disable *both* Local auth and SAML SSO, the login page is skipped and the
 
 ## Settings reference
 
-Top-level tabs: **General · Security (Users, Auth, Suite Integration, AI Assistant, SSL/TLS) · Data (Storage, Backups) · Notifications · User Keys · Collectors · Ingest**.
+A section bar at the top of the page splits Settings into **Common** — the tabs every pkt* app shares — and **pktLog**, this app's own. The tab bar below shows only the selected section, so switch sections if a tab isn't where you expect it. A deep link to a specific tab selects the right section automatically.
 
-| Tab | What it controls |
-|---|---|
-| General | App name, timezone (also governs RFC 3164 timestamp localization), Restart Service |
-| Security → Users | Accounts, roles (admin-only) |
-| Security → Auth | Local auth toggle, SAML SSO config |
-| Security → Suite Integration | Suite token for pktHub proxying |
-| Security → AI Assistant | Local/self-hosted (Ollama, OpenAI-compatible endpoints) + cloud (Anthropic — key + model Haiku/Sonnet/Opus, OpenAI) providers for the floating AI chat, each independently enabled; local tried first. Scoped strictly to pktLog's own domain — off-topic questions and prompt-injection/override attempts are refused server-side before ever reaching the provider |
-| Security → SSL/TLS | HTTPS toggle, cert/key upload |
-| Data → Storage | Storage backend settings |
-| Data → Backups | Schedule, retention, manual trigger, restore |
-| Notifications | Slack, Email (SMTP), PagerDuty, generic Webhook, TraceCat SOAR — six channels total |
-| User Keys | Per-user IP-lookup provider keys (ipinfo.io, ipapi.is, AbuseIPDB, MXToolbox, IPQualityScore — IPQualityScore can be saved/tested but isn't consumed by the lookup endpoint yet) |
-| Collectors | Registered syslog sources — the ingest allowlist |
-| Ingest | Syslog listener configuration |
+- **Common**: **General · Security** (Users, Auth, Suite Integration, AI Assistant, SSL/TLS) **· Data** (Storage, Backups) **· Notifications · User Keys · System**
+- **pktLog**: **Collectors · Ingest**
+
+| Section | Tab | What it controls |
+|---|---|---|
+| **Common** | General | App name, timezone (also governs RFC 3164 timestamp localization), Restart Service |
+| | Security → Users | Accounts, roles (admin-only) |
+| | Security → Auth | Local auth toggle, SAML SSO config |
+| | Security → Suite Integration | Suite token for pktHub proxying |
+| | Security → AI Assistant | Local/self-hosted (Ollama, OpenAI-compatible endpoints) + cloud (Anthropic — key + model Haiku/Sonnet/Opus, OpenAI) providers for the floating AI chat, each independently enabled; local tried first. Scoped strictly to pktLog's own domain — off-topic questions and prompt-injection/override attempts are refused server-side before ever reaching the provider. A provider gets 180 seconds to answer before the request fails — a ceiling sized for slow local models, not cloud ones |
+| | Security → SSL/TLS | HTTPS toggle, cert/key upload |
+| | Data → Storage | Storage backend settings |
+| | Data → Backups | Schedule, retention, manual trigger, restore |
+| | Notifications | Slack, Email (SMTP), PagerDuty, generic Webhook, TraceCat SOAR — six channels total |
+| | User Keys | Per-user IP-lookup provider keys (ipinfo.io, ipapi.is, AbuseIPDB, MXToolbox, IPQualityScore — IPQualityScore can be saved/tested but isn't consumed by the lookup endpoint yet) |
+| | System | Version/build info, host and runtime details, open-source notices |
+| **pktLog** | Collectors | Registered syslog sources — the ingest allowlist |
+| | Ingest | Syslog listener configuration |
 
 ## Collector registry (ingest gating)
 

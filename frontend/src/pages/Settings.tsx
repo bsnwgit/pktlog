@@ -471,6 +471,17 @@ const TABS: Array<{ id: TabId; label: string; adminOnly?: boolean; gapBefore?: b
   { id: 'ingest',        label: 'Ingest' },
 ]
 
+// ── Top-level sections — Common holds the tabs that used to sit left of the
+// divider (gapBefore); the app-specific section holds gapBefore and everything
+// after it. Split point is derived from TABS itself, not duplicated here.
+type SectionId = 'common' | 'app'
+const APP_SECTION_LABEL = 'pktLog'
+const FIRST_APP_TAB_INDEX = TABS.findIndex(t => t.gapBefore)
+const sectionOfTab = (id: TabId): SectionId => {
+  const idx = TABS.findIndex(t => t.id === id)
+  return idx >= 0 && idx < FIRST_APP_TAB_INDEX ? 'common' : 'app'
+}
+
 // ── System tab — open-source notices ──────────────────────────────────────────
 const OSS_NOTICES: Array<{ name: string; license: string }> = [
   { name: 'FastAPI',            license: 'MIT' },
@@ -746,8 +757,7 @@ function PktHubTokenDisplay() {
     if (!confirm('Generate a new token?\n\nThe current token will stop working immediately.\nYou will need to re-register this app in pktHub with the new token.')) return
     setRegen(true)
     try {
-      const r = await fetch('/api/suite/token/regenerate', { method: 'POST', credentials: 'include' })
-      const d = await r.json()
+      const d = await api.regenerateSuiteToken()
       if (d.suite_token) { setToken(d.suite_token); setRevealed(true) }
     } catch {}
     setRegen(false)
@@ -756,11 +766,7 @@ function PktHubTokenDisplay() {
   const saveRedirectUrl = async () => {
     setSavingUrl(true)
     try {
-      await fetch('/api/suite/hub-redirect-url', {
-        method: 'PATCH', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hub_redirect_url: redirectUrl }),
-      })
+      await api.setHubRedirectUrl(redirectUrl)
       setRedirectUrlSaved(true)
       setTimeout(() => setRedirectUrlSaved(false), 3000)
     } catch {}
@@ -768,12 +774,14 @@ function PktHubTokenDisplay() {
   }
 
   useEffect(() => {
-    fetch('/api/suite/token', { credentials: 'include' })
-      .then(r => r.json())
+    // Use the authenticated api client (attaches the Bearer token) instead of a
+    // raw fetch — a bare fetch sends no Authorization header, so /api/suite/token
+    // 401s when the app is opened directly and the card renders "No token set"
+    // even though a token exists.
+    api.getSuiteToken()
       .then(d => { setToken(d.suite_token || ''); setLoaded(true) })
       .catch(() => setLoaded(true))
-    fetch('/api/suite/mode', { credentials: 'include' })
-      .then(r => r.json())
+    api.getSuiteMode()
       .then(d => { if (d.hub_redirect_url) setRedirectUrl(d.hub_redirect_url) })
       .catch(() => {})
   }, [])
@@ -875,6 +883,12 @@ export default function Settings() {
   const isAdmin               = me?.role === 'admin'
   const [searchParams]        = useSearchParams()
   const [tab, setTab]         = useState<TabId>((searchParams.get('tab') as TabId) || 'general')
+  const [section, setSection] = useState<SectionId>(sectionOfTab((searchParams.get('tab') as TabId) || 'general'))
+  const selectSection = (s: SectionId) => {
+    setSection(s)
+    const firstVisible = TABS.filter(t => !t.adminOnly || isAdmin).find(t => sectionOfTab(t.id) === s)
+    if (firstVisible) setTab(firstVisible.id)
+  }
   const [securityTab, setSecurityTab] = useState<SecurityTabId>(isAdmin ? 'users' : 'auth')
   const [dataTab, setDataTab] = useState<DataTabId>('storage')
   // Deep-link from an "Unknown collector" alert event — pre-fills the
@@ -1131,20 +1145,38 @@ export default function Settings() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-white">pktLog - Settings</h1>
 
+      {/* Section bar */}
+      <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
+        <button
+          onClick={() => selectSection('common')}
+          className={`text-sm px-4 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
+            section === 'common' ? 'bg-gray-700 text-white' : 'text-white hover:text-white'
+          }`}
+        >
+          Common
+        </button>
+        <button
+          onClick={() => selectSection('app')}
+          className={`text-sm px-4 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
+            section === 'app' ? 'bg-gray-700 text-white' : 'text-white hover:text-white'
+          }`}
+        >
+          {APP_SECTION_LABEL}
+        </button>
+      </div>
+
       {/* Tab bar */}
       <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit overflow-x-auto">
-        {TABS.filter(t => !t.adminOnly || isAdmin).map(t => (
-          <Fragment key={t.id}>
-            {t.gapBefore && <div className="w-px self-stretch bg-gray-700 mx-2" />}
-            <button
-              onClick={() => setTab(t.id)}
-              className={`text-sm px-4 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
-                tab === t.id ? 'bg-gray-700 text-white' : 'text-white hover:text-white'
-              }`}
-            >
-              {t.label}
-            </button>
-          </Fragment>
+        {TABS.filter(t => (!t.adminOnly || isAdmin) && sectionOfTab(t.id) === section).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`text-sm px-4 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
+              tab === t.id ? 'bg-gray-700 text-white' : 'text-white hover:text-white'
+            }`}
+          >
+            {t.label}
+          </button>
         ))}
       </div>
 

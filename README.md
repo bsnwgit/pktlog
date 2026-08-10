@@ -133,7 +133,11 @@ MXToolbox's other commands — email/DNS record checks (SPF, DMARC, DKIM, MX, DN
 
 ### AI Assistant
 
-A floating chat button (bottom corner, every page) opens a slide-in drawer backed by whichever AI provider is enabled (`POST /api/ai/chat`) — ask it to help interpret log volume, severity/facility patterns, or investigate an alert; it receives the current page's context (recent events, collector status, alert summaries) alongside the question. Configure providers at **Settings → Security → AI Assistant**: local/self-hosted (Ollama, or any OpenAI-compatible endpoint) are tried first, then cloud (Anthropic — model Haiku/Sonnet/Opus selectable — and OpenAI), each with its own enable toggle. Until at least one is enabled and configured, the assistant reports itself as not configured rather than failing silently.
+A floating chat button (bottom corner, every page) opens a slide-in drawer backed by whichever AI provider is enabled (`POST /api/ai/chat`) — ask it to help interpret log volume, severity/facility patterns, or investigate an alert; it receives the current page's context (recent events, collector status, alert summaries) alongside the question. Configure providers at **Settings → Security → AI Assistant**: local/self-hosted (Ollama, or any OpenAI-compatible endpoint) are tried first, then cloud (Anthropic — model Haiku/Sonnet/Opus selectable — and OpenAI), each with its own enable toggle. Until at least one is enabled and configured, the assistant reports itself as not configured rather than failing silently. Each provider call is given up to **180 seconds** — enough for a local model on modest hardware to work through a complex question; cloud providers rarely need a fraction of it. Exceeding that returns an explicit "didn't finish responding within 180s" error rather than hanging.
+
+### Settings layout
+
+The Settings page is split into two **sections**, chosen from a section bar above the tab bar: **Common** (General · Security · Data · Notifications · User Keys · System — identical across every pkt* app) and **pktLog** (Collectors · Ingest). Selecting a section swaps the tab bar beneath it, so only one group's tabs is visible at a time; these previously shared a single row separated by a thin divider. Deep links still work unchanged — `/settings?tab=devices`, including the deep-link from an "Unknown collector" alert event, selects the right section automatically.
 
 ### Contextual help throughout the UI
 
