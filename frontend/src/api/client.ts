@@ -195,6 +195,12 @@ export const api = {
     request<{ ok: boolean; backend: string; message: string }>('/system/test-connection', { method: 'POST' }),
   getSuiteToken: () =>
     request<{ suite_token: string; has_token: boolean }>('/suite/token'),
+  regenerateSuiteToken: () =>
+    request<{ suite_token: string; status: string }>('/suite/token/regenerate', { method: 'POST' }),
+  getSuiteMode: () =>
+    request<{ hub_redirect_url?: string; [k: string]: unknown }>('/suite/mode'),
+  setHubRedirectUrl: (hub_redirect_url: string) =>
+    request<{ status: string }>('/suite/hub-redirect-url', { method: 'PATCH', body: JSON.stringify({ hub_redirect_url }) }),
 
   restartService: () =>
     request<{ status: string; message: string }>('/system/restart', { method: 'POST' }),
