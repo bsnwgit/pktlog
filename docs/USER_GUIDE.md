@@ -12,6 +12,8 @@ Roles: `admin` (full access), `analyst` (read + export), `viewer` (read-only).
 
 **Dashboard**, **Syslog Explorer**, **Alerts**, **Logs**, **Settings**. Settings is reachable by every role — the page itself hides admin-only tabs (Users, etc.) from analysts and viewers rather than hiding the whole page.
 
+Settings opens with a section bar offering **Common** (General, Security, Data, Notifications, User Keys, System — shared by every pkt* app) and **pktLog** (Collectors, Ingest — this app's own). Only the selected section's tabs appear in the row below it, so switch sections if you can't find a tab. Links straight to a tab still work and pick the section for you.
+
 ## Dashboard
 
 A live overview of incoming syslog volume and severity breakdown across your registered collectors. Widgets can be filtered (e.g. by minimum severity) depending on how your admin has configured them.
