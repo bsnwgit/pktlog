@@ -65,6 +65,15 @@ DEFAULTS: dict[str, Any] = {
     "notify_tracecat_webhook_url": "",   # TraceCat workflow webhook URL
     "notify_tracecat_api_token": "",     # Bearer token for TraceCat API auth (optional)
 
+    # ── App log forwarding (ship this app's own logs to pktLog) ──────────────
+    # pktLog listens on 5514 by default and parses RFC 5424.
+    "log_forward_enabled": False,
+    "log_forward_host": "",
+    "log_forward_port": 5514,
+    "log_forward_protocol": "udp",       # udp | tcp
+    "log_forward_level": "INFO",         # DEBUG | INFO | WARNING | ERROR
+    "log_forward_app_name": "pktlog",
+
     # General
     "app_name": "pktLog",
     "base_url": "",  # install.sh seeds this with the detected server IP; blank if unset
