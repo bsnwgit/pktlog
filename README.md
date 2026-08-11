@@ -497,6 +497,72 @@ pktlog/
 
 ---
 
+## Log Forwarding
+
+pktLog writes its own application log to the in-app **Logs** page. It can also
+ship that log to a syslog collector — normally **pktLog**, which listens on
+port `5514` — so this app's events sit alongside the rest of the estate.
+
+Settings keys (Settings → Data → Log Forwarding in apps that expose the UI;
+otherwise via `PUT /api/settings`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `log_forward_enabled` | `false` | Turn forwarding on |
+| `log_forward_host` | `""` | Collector hostname or IP |
+| `log_forward_port` | `5514` | pktLog's syslog port |
+| `log_forward_protocol` | `udp` | `udp` or `tcp` |
+| `log_forward_level` | `INFO` | Minimum level forwarded |
+| `log_forward_app_name` | `pktlog` | APP-NAME in the syslog message |
+
+Admin endpoints:
+
+- `GET  /api/system/log-forward/status` — delivery counters (sent, dropped, errors)
+- `POST /api/system/log-forward/test` — send one test line without saving settings
+- `POST /api/system/log-forward/reload` — apply settings changes without a restart
+
+**Format is RFC 5424, deliberately.** pktLog parses both 3164 and 5424, but
+3164 timestamps carry no timezone and the collector has to guess the offset —
+which has produced wrong timestamps in this suite before. 5424 carries a full
+offset, so there is nothing to guess.
+
+**Delivery is fire-and-forget** on a background thread, with counters. Log
+forwarding must never block or crash the thing it observes: a dropped line is a
+nuisance, a stalled collector loop is an outage. If the collector is
+unreachable, lines are dropped and counted rather than raised.
+
+### If forwarded logs never arrive
+
+**pktLog drops syslog from sources that are not registered.** Its
+`collector_registry` gates what is allowed to persist, so the sending host's IP
+must be present *and enabled* under pktLog's Settings → Collectors. Until then
+the messages are accepted on the wire and silently discarded — the sender sees
+a successful send either way, because UDP cannot tell it otherwise. pktLog also
+caches that registry for five minutes, so a newly enabled source is not live
+immediately.
+
+Use the **Send test message** button (or the `test` endpoint) to confirm the
+path end to end rather than assuming it works.
+
+## Worker Count
+
+pktLog runs **single-process** by default (`PKTLOG_WORKERS`, default `1`).
+
+It previously defaulted to 2, which made it the only app in the suite driving
+its SQLite sidecar database from two OS processes. FastAPI's lifespan hook runs
+once per worker, so the alert engine, alert cleanup, backup scheduler, SQLite
+log handler and ingest BatchWriter each ran in duplicate against the same file.
+`pktlog.db` corrupted under that arrangement twice — 2026-08-04 and 2026-08-09 —
+and no single-process sibling ever has.
+
+The second worker also bought very little: the syslog listener can only bind
+the port once, so the second worker logged "port already bound" and served HTTP
+only.
+
+Raise `PKTLOG_WORKERS` if you need more HTTP concurrency, but give the
+background jobs a single-leader guard first, or the same corruption path
+reopens.
+
 ## Security Notes
 
 - Change `secret_key` in `config.yaml` (or `PKTLOG_SECRET_KEY` env var) before production use — `openssl rand -hex 32`
