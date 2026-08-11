@@ -1005,6 +1005,10 @@ export default function Settings() {
   const [cleanupResult, setCleanupResult]   = useState<string | null>(null)
   const [exportRunning, setExportRunning]   = useState(false)
   const [exportError, setExportError]       = useState<string | null>(null)
+  // Step-up re-auth before the bundle is generated — it carries config.yaml,
+  // i.e. the key to every encrypted secret in the database, alongside it.
+  const [exportPrompt, setExportPrompt] = useState(false)
+  const [exportPassword, setExportPassword] = useState('')
   const [importFile, setImportFile]         = useState<File | null>(null)
   const [importRunning, setImportRunning]   = useState(false)
   const [importResult, setImportResult]     = useState<Record<string, string> | null>(null)
@@ -1094,7 +1098,7 @@ export default function Settings() {
     setExportRunning(true)
     setExportError(null)
     try {
-      const { blob, filename } = await api.exportConfig()
+      const { blob, filename } = await api.exportConfig(exportPassword)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -1103,6 +1107,8 @@ export default function Settings() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+      setExportPrompt(false)
+      setExportPassword('')
     } catch (e: any) {
       setExportError(e.message || 'Export failed')
     } finally {
@@ -1619,13 +1625,35 @@ export default function Settings() {
           </Field>
           <Field label="Export bundle" hint="Download pktlog.db + config.yaml + ClickHouse flow history as a .tar.gz. Large datasets may take a minute to generate.">
             <div className="flex items-center gap-3 flex-wrap">
-              <button
-                onClick={runExport}
-                disabled={exportRunning}
-                className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm rounded-lg px-4 py-2 transition-colors"
-              >
-                {exportRunning ? 'Generating…' : 'Download Export'}
-              </button>
+              {!exportPrompt ? (
+                <button onClick={() => { setExportPassword(''); setExportError(null); setExportPrompt(true) }}
+                  className="bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg px-4 py-2 transition-colors">
+                  Download Export
+                </button>
+              ) : (
+                <div className="flex flex-col gap-2 w-full">
+                  <p className="text-xs text-amber-300/90">
+                    This bundle contains the database <em>and</em> config.yaml — every encrypted secret plus the
+                    key that decrypts them. Confirm your password to download it, then store it as carefully as
+                    you would the secrets themselves.
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input type="password" value={exportPassword} autoComplete="current-password"
+                      onChange={e => setExportPassword(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && exportPassword) runExport() }}
+                      placeholder="Your current password"
+                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+                    <button onClick={runExport} disabled={exportRunning || !exportPassword}
+                      className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm rounded-lg px-4 py-2 transition-colors">
+                      {exportRunning ? 'Generating…' : 'Confirm & Download'}
+                    </button>
+                    <button onClick={() => { setExportPrompt(false); setExportPassword(''); setExportError(null) }}
+                      className="text-white hover:text-white text-sm border border-gray-700 rounded-lg px-4 py-2 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
               {exportError && (
                 <span className="text-xs text-red-400">{exportError}</span>
               )}
