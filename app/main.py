@@ -121,6 +121,10 @@ async def lifespan(app: FastAPI):
     from app.alerts.cleanup import AlertCleanup
     cleanup = AlertCleanup()
     await cleanup.start()
+
+    from app.retention import DataRetention
+    data_retention = DataRetention()
+    await data_retention.start()
     log.info("Alert cleanup started")
 
     # Start backup scheduler
