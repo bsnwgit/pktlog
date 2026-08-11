@@ -210,19 +210,19 @@ export default function Dashboard() {
             <AreaChart data={chartData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="ev-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}   />
+                  <stop offset="5%"  stopColor="#8ad8ea" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#8ad8ea" stopOpacity={0}   />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis dataKey="t" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#211c14" />
+              <XAxis dataKey="t" tick={{ fill: '#a9a294', fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fill: '#a9a294', fontSize: 11 }} tickLine={false} axisLine={false} />
               <Tooltip
-                contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#9ca3af' }}
-                itemStyle={{ color: '#60a5fa' }}
+                contentStyle={{ background: '#0d1219', border: '1px solid #2a2418', borderRadius: '8px', fontSize: '12px' }}
+                labelStyle={{ color: '#a9a294' }}
+                itemStyle={{ color: '#8ad8ea' }}
               />
-              <Area type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} fill="url(#ev-grad)" dot={false} name="Events" />
+              <Area type="monotone" dataKey="count" stroke="#8ad8ea" strokeWidth={2} fill="url(#ev-grad)" dot={false} name="Events" />
             </AreaChart>
           </ResponsiveContainer>
         )}
