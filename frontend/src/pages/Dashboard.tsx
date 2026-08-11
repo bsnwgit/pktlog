@@ -12,6 +12,7 @@ import HelpButton from '../components/HelpButton'
 import IpLink from '../components/IpLink'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useTimezone } from '../hooks/useTimezone'
+import { axisProps, tooltipProps, gridProps, glow, INSTRUMENT } from '../components/instrument'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -214,15 +215,15 @@ export default function Dashboard() {
                   <stop offset="95%" stopColor="#8ad8ea" stopOpacity={0}   />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#211c14" />
-              <XAxis dataKey="t" tick={{ fill: '#a9a294', fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: '#a9a294', fontSize: 11 }} tickLine={false} axisLine={false} />
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="t" tick={axisProps.tick} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={axisProps.tick} tickLine={false} axisLine={false} />
               <Tooltip
-                contentStyle={{ background: '#0d1219', border: '1px solid #2a2418', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#a9a294' }}
+                contentStyle={tooltipProps.contentStyle}
+                labelStyle={tooltipProps.labelStyle}
                 itemStyle={{ color: '#8ad8ea' }}
               />
-              <Area type="monotone" dataKey="count" stroke="#8ad8ea" strokeWidth={2} fill="url(#ev-grad)" dot={false} name="Events" />
+              <Area type="monotone" dataKey="count" stroke="#8ad8ea" style={glow("#8ad8ea", 5)} strokeWidth={2} fill="url(#ev-grad)" dot={false} name="Events" />
             </AreaChart>
           </ResponsiveContainer>
         )}
