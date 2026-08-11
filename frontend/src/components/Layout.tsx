@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import AiAssistant from './AiAssistant'
 import { AutoRefreshProvider, useAutoRefresh } from '../store/autoRefresh'
 import clsx from 'clsx'
+import { BrandLockup } from './Brand'
 
 // ─── Change Password Modal ────────────────────────────────────────────────────
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
@@ -161,7 +162,7 @@ export default function Layout({ children, chromeless = false }: { children: Rea
   if (chromeless) {
     return (
       <AutoRefreshProvider>
-        <div className="bg-gray-950 text-white min-h-screen p-5">
+        <div className="relative z-10 text-white min-h-screen p-6">
           {children}
         </div>
       </AutoRefreshProvider>
@@ -170,30 +171,30 @@ export default function Layout({ children, chromeless = false }: { children: Rea
 
   return (
     <AutoRefreshProvider>
-    <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
-      <aside className="w-52 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+    <div className="relative z-10 flex h-screen text-white overflow-hidden">
+      <aside className="w-[210px] flex-shrink-0 border-r border-gray-800 flex flex-col" style={{ background: 'linear-gradient(180deg, rgba(216,180,110,.025), transparent 40%)' }}>
         <div className="flex items-center px-4 py-4 border-b border-gray-800">
-          <img src="logos/lockup-64h.png" alt="pktLog" />
+          <BrandLockup markSize={30} />
         </div>
 
         <nav className="flex-1 px-2 py-4 space-y-0.5">
           {NAV.filter(n => !n.adminOnly || user?.role === 'admin').map(({ to, label, icon, dividerBefore }) => (
             <div key={to}>
-              {dividerBefore && <div className="h-0.5 bg-gray-600 mx-1 my-2 rounded-full" />}
+              {dividerBefore && <div className="h-px bg-blue-500/25 mx-3 my-3" />}
               <NavLink
                 to={to}
                 end={to === '/'}
                 className={({ isActive }) => clsx(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+                  'flex items-center gap-3 pl-3 pr-3 py-2.5 text-[11.5px] uppercase tracking-[0.13em] transition-colors',
                   isActive
-                    ? 'bg-blue-600/20 text-blue-300 font-medium'
-                    : 'text-white hover:text-white hover:bg-gray-800',
+                    ? 'bg-gradient-to-r from-blue-500/[0.12] to-transparent text-blue-300 border-l-2 border-blue-500'
+                    : 'text-gray-400 hover:text-white hover:bg-blue-500/[0.04] border-l-2 border-transparent',
                 )}
               >
-                <span className="text-base leading-none">{icon}</span>
+                <span className="text-xs w-3.5 text-center leading-none">{icon}</span>
                 <span>{label}</span>
                 {label === 'Alerts' && unacked > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none">
+                  <span className="ml-auto font-mono text-[9.5px] text-red-500 border border-red-500/50 px-1.5 leading-relaxed">
                     {unacked}
                   </span>
                 )}
@@ -206,20 +207,20 @@ export default function Layout({ children, chromeless = false }: { children: Rea
           <NavLink
             to="/documentation"
             className={({ isActive }) => clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+              'flex items-center gap-3 pl-3 pr-3 py-2.5 text-[11.5px] uppercase tracking-[0.13em] transition-colors',
               isActive
-                ? 'bg-blue-600/20 text-blue-300 font-medium'
-                : 'text-white hover:text-white hover:bg-gray-800',
+                ? 'bg-gradient-to-r from-blue-500/[0.12] to-transparent text-blue-300 border-l-2 border-blue-500'
+                : 'text-gray-400 hover:text-white hover:bg-blue-500/[0.04] border-l-2 border-transparent',
             )}
           >
-            <span className="text-base leading-none">❐</span>
+            <span className="text-xs w-3.5 text-center leading-none">❐</span>
             <span>Documentation</span>
           </NavLink>
         </div>
 
         <div className="px-3 py-3 border-t border-gray-800">
           <div className="flex items-center gap-2 px-2 py-1.5">
-            <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
+            <div className="w-7 h-7 rounded-full border border-blue-500/50 flex items-center justify-center text-[11px] font-mono text-blue-300">
               {user?.username?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -243,7 +244,7 @@ export default function Layout({ children, chromeless = false }: { children: Rea
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-12 flex-shrink-0 bg-gray-900 border-b border-gray-800 flex items-center px-5 gap-4">
+        <header className="h-12 flex-shrink-0 border-b border-gray-800 flex items-center px-6 gap-5">
           <div className="flex items-center gap-1.5 text-sm">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
             <span className="text-white">Live</span>
