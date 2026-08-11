@@ -42,6 +42,32 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
     # ── Startup ───────────────────────────────────────────────────────────────
     log.info("pktLog starting up")
+    # Ship our own logs to pktLog if configured.
+    try:
+        import json as _json, logging as _logging
+        import aiosqlite as _aio
+        _fwd: dict = {}
+        async with _aio.connect(settings.db_path) as _db:
+            async with _db.execute(
+                "SELECT key, value FROM settings WHERE key LIKE 'log_forward_%'"
+            ) as _cur:
+                for _k, _v in await _cur.fetchall():
+                    try:
+                        _fwd[_k] = _json.loads(_v)
+                    except Exception:
+                        _fwd[_k] = _v
+        if _fwd.get("log_forward_enabled"):
+            from app.log_forward import configure_forwarding
+            configure_forwarding(
+                enabled=True,
+                host=str(_fwd.get("log_forward_host") or ""),
+                port=int(_fwd.get("log_forward_port") or 5514),
+                protocol=str(_fwd.get("log_forward_protocol") or "udp"),
+                level=getattr(_logging, str(_fwd.get("log_forward_level") or "INFO"), _logging.INFO),
+                app_name=str(_fwd.get("log_forward_app_name") or "pktlog"),
+            )
+    except Exception as _e:
+        log.warning(f"Log forwarding setup skipped: {_e}")
 
     # Attach SQLite log handler (captures INFO+ by default)
     from app.logging_handler import SQLiteLogHandler
