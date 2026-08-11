@@ -12,7 +12,7 @@ import HelpButton from '../components/HelpButton'
 import IpLink from '../components/IpLink'
 import { useAutoRefresh } from '../store/autoRefresh'
 import { useTimezone } from '../hooks/useTimezone'
-import { axisProps, tooltipProps, gridProps, glow, INSTRUMENT } from '../components/instrument'
+import { axisProps, tooltipProps, gridProps, glow, INSTRUMENT, InstrumentFrame, RadialRing, RadialGauge, liveEdgeDot, LinePulseGradient, BarPulseGradients } from '../components/instrument'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -210,6 +210,7 @@ export default function Dashboard() {
           <ResponsiveContainer width="100%" height={160}>
             <AreaChart data={chartData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
               <defs>
+            <LinePulseGradient id="f-pulse-dashboard-0" color="#8ad8ea" />
                 <linearGradient id="ev-grad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#8ad8ea" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#8ad8ea" stopOpacity={0}   />
@@ -223,7 +224,7 @@ export default function Dashboard() {
                 labelStyle={tooltipProps.labelStyle}
                 itemStyle={{ color: '#8ad8ea' }}
               />
-              <Area type="monotone" dataKey="count" stroke="#8ad8ea" style={glow("#8ad8ea", 5)} strokeWidth={2} fill="url(#ev-grad)" dot={false} name="Events" />
+              <Area type="monotone" dataKey="count" stroke="url(#f-pulse-dashboard-0)" style={glow("#8ad8ea", 5)} strokeWidth={2} fill="url(#ev-grad)" dot={liveEdgeDot(chartData.length, '#8ad8ea')} name="Events" />
             </AreaChart>
           </ResponsiveContainer>
         )}
