@@ -7,6 +7,7 @@ import { useTimezone } from '../hooks/useTimezone'
 import HelpButton from '../components/HelpButton'
 import { copyToClipboard } from '../utils/clipboard'
 import IpLink from '../components/IpLink'
+import { BrandLockup } from '../components/Brand'
 
 // ── Generic helpers ────────────────────────────────────────────────────────────
 type Settings = Record<string, unknown>
@@ -819,7 +820,7 @@ function PktHubTokenDisplay() {
                   if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2000) }
                 }}
                 className="px-3 py-1.5 text-xs font-medium text-white rounded-lg whitespace-nowrap transition-colors"
-                style={{ background: copied ? '#16a34a' : '#2563eb' }}
+                style={{ background: copied ? '#52cc8e' : '#63c3d8' }}
               >
                 {copied ? '\u2713 Copied' : 'Copy Token'}
               </button>
@@ -853,7 +854,7 @@ function PktHubTokenDisplay() {
               onClick={saveRedirectUrl}
               disabled={savingUrl}
               className="px-3 py-2 text-xs font-medium text-white rounded-lg whitespace-nowrap disabled:opacity-40 transition-colors"
-              style={{ background: redirectUrlSaved ? '#16a34a' : '#2563eb' }}
+              style={{ background: redirectUrlSaved ? '#52cc8e' : '#63c3d8' }}
             >
               {savingUrl ? '\u2026' : redirectUrlSaved ? '\u2713 Saved' : 'Save'}
             </button>
@@ -1912,7 +1913,7 @@ export default function Settings() {
             <div className="px-6 py-4 border-b border-gray-800 grid grid-cols-3 gap-4 items-center">
               <h2 className="text-sm font-semibold text-white">System: {systemInfo?.app_name ?? 'pktLog'}</h2>
               <div className="col-span-2">
-                <img src="logos/lockup-64h.png" alt={systemInfo?.app_name ?? 'pktLog'} className="h-8 w-auto" />
+                <BrandLockup markSize={32} descriptor={null} />
               </div>
             </div>
             <div className="px-6 py-2">
