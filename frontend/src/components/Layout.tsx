@@ -2,7 +2,6 @@ import { ReactNode, useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
 import { api } from '../api/client'
-import AiAssistant from './AiAssistant'
 import { AutoRefreshProvider, useAutoRefresh } from '../store/autoRefresh'
 import clsx from 'clsx'
 import { BrandLockup } from './Brand'
@@ -265,8 +264,6 @@ export default function Layout({ children, chromeless = false }: { children: Rea
       {children}
         </main>
       </div>
-
-      <AiAssistant />
       {showChangePw && <ChangePasswordModal onClose={() => setShowChangePw(false)} />}
     </div>
     </AutoRefreshProvider>
