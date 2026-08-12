@@ -131,17 +131,13 @@ This is **per-user**, not a global app setting: each user adds their own API key
 
 MXToolbox's other commands — email/DNS record checks (SPF, DMARC, DKIM, MX, DNS, TXT, SOA, BIMI, MTA-STS, TLSRPT, A, AAAA) and active probes (ping, traceroute, TCP/HTTP/HTTPS/SMTP connect, run from MXToolbox's own infrastructure) — are reachable via `POST /api/mxtoolbox/lookup` (`{command, argument, port?}`) but aren't surfaced in the lookup panel yet; that's backend-only reach for now.
 
-### AI Assistant
-
-A floating chat button (bottom corner, every page) opens a slide-in drawer backed by whichever AI provider is enabled (`POST /api/ai/chat`) — ask it to help interpret log volume, severity/facility patterns, or investigate an alert; it receives the current page's context (recent events, collector status, alert summaries) alongside the question. Configure providers at **Settings → Security → AI Assistant**: local/self-hosted (Ollama, or any OpenAI-compatible endpoint) are tried first, then cloud (Anthropic — model Haiku/Sonnet/Opus selectable — and OpenAI), each with its own enable toggle. Until at least one is enabled and configured, the assistant reports itself as not configured rather than failing silently. Each provider call is given up to **180 seconds** — enough for a local model on modest hardware to work through a complex question; cloud providers rarely need a fraction of it. Exceeding that returns an explicit "didn't finish responding within 180s" error rather than hanging.
-
 ### Settings layout
 
 The Settings page is split into two **sections**, chosen from a section bar above the tab bar: **Common** (General · Security · Data · Notifications · User Keys · System — identical across every pkt* app) and **pktLog** (Collectors · Ingest). Selecting a section swaps the tab bar beneath it, so only one group's tabs is visible at a time; these previously shared a single row separated by a thin divider. Deep links still work unchanged — `/settings?tab=devices`, including the deep-link from an "Unknown collector" alert event, selects the right section automatically.
 
 ### Contextual help throughout the UI
 
-Small "?" buttons next to section headers (Dashboard, Alerts, Logs, Syslog Explorer, and most Settings sections — Auth, Suite Integration, AI Assistant, Notifications, Data, etc.) open a short explainer of how that feature actually behaves — e.g. what a toggle does, what a bulk-import column means, what "Send Test" actually sends. Worth checking before assuming default behavior when a setting's effect isn't obvious from its label alone.
+Small "?" buttons next to section headers (Dashboard, Alerts, Logs, Syslog Explorer, and most Settings sections — Auth, Suite Integration, Notifications, Data, etc.) open a short explainer of how that feature actually behaves — e.g. what a toggle does, what a bulk-import column means, what "Send Test" actually sends. Worth checking before assuming default behavior when a setting's effect isn't obvious from its label alone.
 
 ### Notification channels
 
@@ -180,7 +176,6 @@ See [requirements.txt](requirements.txt). Key dependencies:
 - `aiosqlite` — app database
 - `python-jose[cryptography]`, `passlib[bcrypt]` — JWT auth
 - `python3-saml`, `authlib` — SAML/OIDC SSO (Okta)
-- `anthropic` — AI assistant's Anthropic cloud provider (optional; the local/Ollama and OpenAI providers don't need it)
 
 ### Frontend
 
@@ -454,7 +449,6 @@ pktlog/
 │   │   │                     DNS/email records + active probes
 │   │   ├── user_api_keys.py Per-user external API key storage (AbuseIPDB/ipinfo.io/ipapi.is/
 │   │   │                     MXToolbox/IPQualityScore)
-│   │   ├── ai.py             AI Assistant chat (Ollama/local, Anthropic, or OpenAI)
 │   │   ├── ws.py             WebSocket for live dashboard/alert updates
 │   │   ├── widgets.py       Dashboard widgets
 │   │   └── pktlog.py        Misc endpoints
@@ -477,7 +471,6 @@ pktlog/
 ├── clickhouse/schema.sql       syslog_events table (MergeTree, 18 columns incl. dest_ip)
 ├── frontend/src/
 │   ├── pages/                 Login, Dashboard, Alerts, Settings, Users, Logs, SyslogExplorer
-│   ├── components/            Layout, HelpButton (contextual help), IpLink (IP intel lookup), AiAssistant
 │   └── api/client.ts           Typed API client
 ├── migrations/                 SQLite migration scripts (auto-applied on startup)
 ├── install.sh                  Ubuntu install script (ClickHouse, venv, systemd service)
@@ -491,7 +484,6 @@ pktlog/
 
 ## Known Issues & Quirks
 
-1. **AI Assistant chat said "Not authenticated" even with a provider configured — fixed 2026-08-03.** The chat request wasn't sending the session's auth token, so it failed pktLog's own login check before ever reaching the configured AI provider — unrelated to Ollama/Anthropic/OpenAI settings. Also fixed: connection/timeout failures reaching a provider used to show a blank error message; they now name the provider and its base URL.
 
 2. **One-time data migrations in `init_db()` must be lock-protected — root-caused and fixed 2026-08-04.** pktLog is the only pkt* app that runs `uvicorn --workers 2` (`start.sh`); every sibling app is single-process. FastAPI's startup lifespan — which runs `init_db()`, including any one-time data migration — fires independently in both worker processes on every restart. An unprotected migration (any function following the `SELECT` unencrypted rows → loop `UPDATE`-encrypting them pattern, e.g. `_encrypt_legacy_api_keys`/`_encrypt_legacy_suite_tokens`) can run in both processes at once the first time it ever executes, racing to write the same rows — this caused real, repeated `pktlog.db` corruption (`PRAGMA integrity_check` btree failures) on 2026-08-04. Fixed with a cross-process `fcntl.flock` around the entire migration body in `init_db()` (an `asyncio.Lock` would not help — these are separate OS processes, not threads). **Any new one-time migration added to this file is automatically protected as long as it's called from inside `_run_migrations()`/`init_db()`, same as the existing ones — don't add a migration that opens its own separate connection outside that lock.**
 
