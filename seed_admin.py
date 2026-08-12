@@ -54,16 +54,20 @@ def main():
     # target and capture the SSH credentials. Connect once by hand to record
     # the key, or set PKT_SSH_TRUST_NEW_HOSTS=1 to accept a new one.
     client.load_system_host_keys()
-    _known = os.path.expanduser("~/.ssh/known_hosts")
-    if os.path.exists(_known):
-        try:
-            client.load_host_keys(_known)
-        except OSError:
-            pass
-    if os.environ.get("PKT_SSH_TRUST_NEW_HOSTS") == "1":
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    else:
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    for _known in (os.environ.get("PKT_SSH_KNOWN_HOSTS"),
+                   os.path.expanduser("~/.ssh/known_hosts")):
+        if _known and os.path.exists(_known):
+            try:
+                client.load_host_keys(_known)
+            except OSError:
+                pass
+    # RejectPolicy unconditionally. An earlier version of this fix kept an
+    # AutoAddPolicy escape hatch behind an environment variable, which is
+    # exactly the blind first-contact trust the fix exists to remove — it just
+    # moved it behind a flag. Point PKT_SSH_KNOWN_HOSTS at a file instead: a
+    # host key can be recorded deliberately, which is auditable, where
+    # "accept whatever answers this time" is not.
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(args.host, username=args.user, pkey=key, timeout=15, banner_timeout=15)
     print('Connected')
 
