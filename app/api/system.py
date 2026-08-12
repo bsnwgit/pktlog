@@ -32,6 +32,60 @@ log = logging.getLogger("pktlog.system")
 router = APIRouter()
 
 
+def _clickhouse_import(gz_path, database: str, table: str) -> tuple[bool, str]:
+    """Stream a gzipped CSV into ClickHouse without going through a shell.
+
+    This used to build one command string and run it with shell=True. The
+    archive path was single-quoted — which a path containing a single quote
+    escapes — and the database name was interpolated with no quoting at all,
+    so a crafted backup or config value could append arbitrary shell. Both
+    processes are argv lists now, joined by a pipe, so nothing is parsed as
+    shell syntax and there is no quoting to get right.
+    """
+    gunzip = subprocess.Popen(
+        ["gunzip", "-c", str(gz_path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    try:
+        proc = subprocess.run(
+            [
+                "clickhouse-client",
+                "--host", "localhost",
+                "--database", str(database),
+                "--query", f"INSERT INTO {table} FORMAT CSVWithNames",
+            ],
+            stdin=gunzip.stdout,
+            capture_output=True,
+            timeout=600,
+            text=True,
+        )
+    finally:
+        # Let gunzip see EPIPE and reap it rather than leaving a zombie.
+        if gunzip.stdout:
+            gunzip.stdout.close()
+        gunzip.wait()
+    return proc.returncode == 0, (proc.stderr or "")[:300]
+
+
+def _clickhouse_import_plain(csv_path, database: str, table: str) -> tuple[bool, str]:
+    """Same, for an uncompressed CSV — the file is opened and passed as stdin
+    instead of being redirected by a shell."""
+    with open(csv_path, "rb") as fh:
+        proc = subprocess.run(
+            [
+                "clickhouse-client",
+                "--host", "localhost",
+                "--database", str(database),
+                "--query", f"INSERT INTO {table} FORMAT CSVWithNames",
+            ],
+            stdin=fh,
+            capture_output=True,
+            timeout=600,
+            text=True,
+        )
+    return proc.returncode == 0, (proc.stderr or "")[:300]
+
+
+
 @router.get("/info")
 async def system_info(user: CurrentUser) -> dict:
     """Version/about info shown on the Settings → System tab."""
@@ -301,7 +355,12 @@ On the new server, after ClickHouse is running and the pktlog database exists:
                     tar.add(str(f), arcname=f.name)
 
     # Write to a named temp file so we can stream without holding bytes in RAM
-    tmp_out = Path(tempfile.mktemp(suffix=".tar.gz"))
+    # mkstemp, not mktemp: mktemp only *suggests* a name, leaving a window in
+    # which anything can create or symlink that path before we write to it.
+    # mkstemp creates it atomically, O_EXCL, mode 0600.
+    _fd, _tmp_name = tempfile.mkstemp(suffix=".tar.gz")
+    os.close(_fd)
+    tmp_out = Path(_tmp_name)
     try:
         await asyncio.to_thread(_build_archive, tmp_out)
 
@@ -358,15 +417,13 @@ def _restore_from_dir(src_dir: Path, cfg, files: Optional[set[str]]) -> dict:
     if wanted("flows.csv.gz"):
         if flows_gz.exists() and flows_gz.stat().st_size > 100:
             try:
-                cmd = (
-                    f"gunzip -c '{flows_gz}' | clickhouse-client "
-                    f"--host localhost --database {cfg.clickhouse_database} "
-                    f"--query 'INSERT INTO syslog_events FORMAT CSVWithNames'"
+                _ok, _err = _clickhouse_import(
+                    flows_gz, cfg.clickhouse_database, "syslog_events"
                 )
-                proc = subprocess.run(cmd, shell=True, capture_output=True, timeout=600, text=True)
-                result["flows.csv.gz"] = "imported" if proc.returncode == 0 else f"error: {proc.stderr[:300]}"
-            except Exception as e:
-                result["flows.csv.gz"] = f"error: {e}"
+                result["flows.csv.gz"] = "imported" if _ok else f"error: {_err}"
+            except Exception:
+                log.exception("ClickHouse restore of flows.csv.gz failed")
+                result["flows.csv.gz"] = "error: import failed — see the app log"
         else:
             result["flows.csv.gz"] = "not present in backup"
 
@@ -632,8 +689,13 @@ async def upload_ssl_pfx(
     def _extract() -> tuple[bool, str]:
         import tempfile
         _ssl_dir().mkdir(parents=True, exist_ok=True)
-        tmp = Path(tempfile.mktemp(suffix=".pfx"))
-        tmp.write_bytes(pfx_data)
+        # This file holds PKCS#12 private key material, so a predictable name
+        # is the worst case for mktemp's create-between-name-and-write window.
+        # mkstemp creates it atomically with mode 0600 and returns the fd.
+        _fd, _tmp_name = tempfile.mkstemp(suffix=".pfx")
+        with os.fdopen(_fd, "wb") as _fh:
+            _fh.write(pfx_data)
+        tmp = Path(_tmp_name)
         try:
             # Extract certificate chain
             cert_proc = subprocess.run(
