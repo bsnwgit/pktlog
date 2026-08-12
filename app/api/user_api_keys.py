@@ -7,6 +7,7 @@ there is no admin-wide view or override here.
 """
 from __future__ import annotations
 
+import logging
 import json
 from urllib.parse import quote
 
@@ -22,6 +23,8 @@ from app.crypto import decrypt_str, encrypt_str
 # Public, harmless IP used to exercise each provider's lookup endpoint when
 # testing a key — Google Public DNS, safe to query against any provider.
 _TEST_IP = "8.8.8.8"
+
+log = logging.getLogger("pktlog.user_api_keys")
 
 router = APIRouter()
 
@@ -364,7 +367,14 @@ async def test_api_key(provider: str, body: ApiKeyIn, _: CurrentUser) -> dict:
                     return {"status": "ok", "detail": "Key is valid"}
                 return {"status": "failed", "detail": data.get("error") or f"ipapi.is returned HTTP {resp.status_code}: {resp.text[:200]}"}
 
-    except httpx.RequestError as exc:
-        return {"status": "failed", "detail": f"Request error: {exc}"}
+    except httpx.RequestError:
+
+        # httpx puts the full request URL in its exception text, and on a key
+
+        # check that URL contains the key being tested.
+
+        log.exception("provider key check failed")
+
+        return {"status": "failed", "detail": "Request error contacting the provider"}
 
     return {"status": "failed", "detail": "Unhandled provider"}

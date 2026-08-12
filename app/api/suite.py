@@ -14,12 +14,15 @@ GET  /api/suite/whoami   — authenticated identity check; a sibling pkt* app's
                            /api/health) so a wrong/revoked token fails the test
                            instead of silently reporting a healthy connection.
 """
+import logging
 import secrets
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app.dependencies import CurrentUser, AdminUser
+
+log = logging.getLogger("pktlog.api.suite")
 
 router = APIRouter()
 
@@ -85,8 +88,11 @@ async def suite_register(request: Request, user: AdminUser):
             )
             await db.commit()
         return JSONResponse({"status": "ok"})
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/regenerate")
@@ -108,8 +114,11 @@ async def regenerate_suite_token(request: Request, user: AdminUser):
             )
             await db.commit()
         return JSONResponse({"suite_token": new_token, "status": "regenerated"})
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/direct-access")
@@ -136,8 +145,11 @@ async def set_direct_access(request: Request):
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('lock_heartbeat_at', datetime('now'))")
             await db.commit()
         return JSONResponse({"status": "ok", "direct_ui_locked": locked})
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.get("/direct-access")
@@ -159,8 +171,11 @@ async def get_direct_access(request: Request):
         locked = bool(row and row[0] == "true")
         redirect_url = rrow[0] if rrow and rrow[0] else ""
         return JSONResponse({"direct_ui_locked": locked, "hub_redirect_url": redirect_url})
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.get("/mode")
@@ -179,8 +194,11 @@ async def get_mode():
             "direct_ui_locked": bool(row and row[0] == "true"),
             "hub_redirect_url": rrow[0] if rrow and rrow[0] else "",
         })
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.patch("/hub-redirect-url")
@@ -197,8 +215,11 @@ async def set_hub_redirect_url(request: Request, user: CurrentUser):
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('hub_redirect_url', ?)", (url,))
             await db.commit()
         return JSONResponse({"status": "ok", "hub_redirect_url": url})
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
 
 @router.post("/settings-lock")
@@ -226,8 +247,11 @@ async def set_settings_lock(request: Request, user: CurrentUser):
                 (json.dumps(locked),)
             )
             await db.commit()
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    except Exception:
+        # The exception text carries the database path and internal SQL, and
+        # this endpoint answers pktHub over the network — log it, don't return it.
+        log.exception("suite endpoint failed")
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
     return JSONResponse({"hub_settings_managed": locked})
 
