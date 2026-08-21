@@ -1020,13 +1020,19 @@ export default function Settings() {
     setCleanupResult(null)
     try {
       const r = await api.runCleanup()
+      // A failed ClickHouse pass still returns HTTP 200 with the reason in
+      // clickhouse_status, so it has to be surfaced explicitly — reading only
+      // the row counts is how this button spent months reporting a cheerful
+      // "nothing to delete" while the cleanup itself was erroring out.
+      if (r.clickhouse_status?.startsWith('error')) {
+        setCleanupResult(`Error: ${r.clickhouse_status.replace(/^error:\s*/, '')}`)
+        return
+      }
       const parts: string[] = []
-      if (r.flows_eligible > 0)
-        parts.push(`${r.flows_eligible.toLocaleString()} flows queued for deletion`)
+      if (r.events_eligible > 0)
+        parts.push(`${r.events_eligible.toLocaleString()} events queued for deletion`)
       else
-        parts.push('No flows beyond retention threshold')
-      if (r.hourly_eligible > 0)
-        parts.push(`${r.hourly_eligible.toLocaleString()} hourly rollup rows queued`)
+        parts.push('No events beyond retention threshold')
       if (r.alert_events_deleted > 0)
         parts.push(`${r.alert_events_deleted} alert events purged`)
       setCleanupResult(parts.join(' · '))

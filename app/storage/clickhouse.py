@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -31,6 +32,17 @@ _INSERT_COLS = """
     collector_ip, collector_name,
     org, log_group, site
 """
+
+
+# Reads the day count back out of a table's TTL clause. ClickHouse normalises
+# `INTERVAL 90 DAY` to `toIntervalDay(90)` in the stored CREATE query, but a
+# table created straight from clickhouse/schema.sql on an older server can
+# still be holding the un-normalised spelling, so accept both.
+_TTL_DAYS_RE = re.compile(
+    r"TTL\s+toDateTime\(\s*timestamp\s*\)\s*\+\s*"
+    r"(?:toIntervalDay\(\s*(\d+)\s*\)|INTERVAL\s+(\d+)\s+DAY)",
+    re.IGNORECASE,
+)
 
 
 def _text_filter(column: str, param: str, match_mode: str) -> str:
@@ -271,6 +283,77 @@ class ClickHouseBackend(StorageBackend):
         """
         rows = await asyncio.to_thread(self._execute, q)
         return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat() + "Z"} for r in rows]
+
+    # ── Retention ─────────────────────────────────────────────────────────────
+
+    def _current_ttl_days(self, db: str) -> Optional[int]:
+        """Days in syslog_events' current TTL clause, or None if it has none.
+
+        Read back out of the stored CREATE query rather than a dedicated
+        column: system.tables.ttl_expression does not exist on ClickHouse 26,
+        which is what the appliance runs. A TTL that does not match the shape
+        this backend writes — hand-edited, or a multi-expression TTL with
+        per-column or move-to-disk rules — reads as None, so the next call
+        overwrites it wholesale. That is the safe direction to fail: a
+        retention window nobody recognises is replaced by the configured one,
+        rather than being mistaken for it and left in place.
+        """
+        rows = self._execute(
+            "SELECT create_table_query FROM system.tables "
+            "WHERE database = %(db)s AND name = 'syslog_events'",
+            {"db": db},
+        )
+        if not rows:
+            return None
+        m = _TTL_DAYS_RE.search(rows[0][0])
+        if not m:
+            return None
+        return int(m.group(1) or m.group(2))
+
+    async def update_retention_ttl(self, days: int) -> None:
+        """Point syslog_events' TTL at `days`; ClickHouse does the deleting.
+
+        Unlike the DuckDB backend, this does not delete anything itself. It
+        rewrites the table's TTL expression, and ClickHouse then expires rows
+        continuously during background merges — no scheduler required, and no
+        window in which a missed run means data is retained forever.
+
+        The ALTER is skipped when the TTL already says what we would set it to,
+        which matters more than it looks: `materialize_ttl_after_modify`
+        defaults to 1, so every MODIFY TTL also queues a mutation that rewrites
+        every part on disk to re-apply the expression. That is exactly what a
+        *shortened* window needs — otherwise old data lingers until a merge
+        happens to touch its part — but it is a full-table rewrite, and this
+        method runs on a daily schedule. Without the read-back guard the
+        appliance would mutate its entire syslog table once a day, forever, to
+        set a value that never changed. With it, the scheduled pass costs one
+        cheap SELECT except on the day an admin actually edits the setting.
+        """
+        days = int(days)
+        if days <= 0:
+            raise ValueError(f"retention days must be positive, got {days}")
+
+        db = settings.clickhouse_database
+        # ClickHouse cannot parameterise DDL, so `days` is interpolated into
+        # the statement. int() above is the guard that makes that safe — keep
+        # them together.
+        target = f"toDateTime(timestamp) + toIntervalDay({days})"
+
+        def _apply() -> Optional[int]:
+            current = self._current_ttl_days(db)
+            if current != days:
+                self._execute(f"ALTER TABLE {db}.syslog_events MODIFY TTL {target}")
+            return current
+
+        previous = await asyncio.to_thread(_apply)
+        if previous == days:
+            log.info("ClickHouse retention: syslog_events TTL already %dd — no change", days)
+        else:
+            log.info(
+                "ClickHouse retention: syslog_events TTL %s → %dd (expiry mutation queued)",
+                f"{previous}d" if previous is not None else "unset",
+                days,
+            )
 
     # ── Alert-engine metrics ─────────────────────────────────────────────────
 
