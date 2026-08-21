@@ -95,9 +95,23 @@ Syslog Collectors ──UDP/TCP:5514──► pktLog Ingest Listener
 
 ### Collectors are an allowlist, not just labels
 
-A device can be actively sending syslog data on the wire, but **nothing is stored until its IP is added under Settings → Collectors and marked enabled.** Data from an unregistered or disabled `collector_ip` is dropped at ingest (`app/ingest/normalizer.py`), not just missing hierarchy metadata — this is intentional, so a stray/misconfigured device on the network can't silently fill up storage. An unregistered sender instead raises an "Unknown collector" alert with a one-click link to pre-fill its registration form.
+A device can be actively sending syslog data on the wire, but **nothing is stored until its IP is approved and marked enabled.** Data from an unregistered or disabled `collector_ip` is dropped at ingest (`app/ingest/normalizer.py`), not just missing hierarchy metadata — this is intentional, so a stray/misconfigured device on the network can't silently fill up storage.
 
-Settings → Collectors also has **Export CSV / Import CSV / template-download** buttons for provisioning many collectors at once instead of one at a time (columns: `collector_ip, collector_name, org, log_group, site, notes, enabled`). Duplicate IPs are skipped on import, not overwritten — use the existing Edit action for changes to an entry already in the registry.
+New senders are admitted on the **Approval** page (see below); Settings → Collectors edits the ones already approved and also has **Export CSV / Import CSV / template-download** buttons for provisioning many collectors at once instead of one at a time (columns: `collector_ip, collector_name, org, log_group, site, notes, enabled`). Duplicate IPs are skipped on import, not overwritten — use the existing Edit action for changes to an entry already in the registry.
+
+### Approval — admitting a new collector
+
+**Approval** is a top-level, admin-only page sitting directly above Settings. Senders that ingest drops because they aren't in the registry are recorded in `pending_collectors` and listed there with first/last seen, how many messages have been dropped, and a sample raw line to identify the device by.
+
+- **Approve** creates the `collector_registry` row (that is what actually admits the data) and clears the queue entry.
+- **Ignore** hides a sender without admitting it — its messages keep being dropped and its counter keeps rising, so a chatty unwanted device can't bury real ones.
+- **Forget** removes the row; it returns if the device sends again. Neither Ignore nor Forget is a block.
+
+It is deliberately **not** a Settings tab. Settings goes read-only whenever pktHub manages the app (`hub_settings_managed`, see *Hub-managed direct-access lock*), which would otherwise force a managed install over to pktHub just to admit a device — an operational act, not a configuration one.
+
+Counters accumulate in memory on the ingest path (`app/ingest/pending.py`) and are folded into SQLite once per alert-engine tick (60s), so a device that has just started sending takes up to a minute to appear and its total lags slightly behind the wire. A sender already in the registry but *disabled* also hits the drop path; it is filtered out at flush time rather than being listed as awaiting approval, because it was deliberately turned off.
+
+API (all admin-only): `GET /api/approval/pending`, `GET /api/approval/count`, `POST /api/approval/approve`, `POST /api/approval/{ip}/ignore`, `POST /api/approval/{ip}/unignore`, `DELETE /api/approval/{ip}`.
 
 ### Timestamps and device timezone
 
@@ -117,7 +131,7 @@ Alerts → Rules has Export CSV / Import CSV / template-download buttons alongsi
 
 ### Alert Investigate button
 
-Every active/history alert card has an **Investigate ↗** button that jumps straight to Syslog Explorer, pre-filtered to the alert's `collector_ip` (a new `collector_ip` search param/filter, distinct from the existing name-based `collector_name` filter) and a time window around when it fired. The "Unknown collector" registration link (Settings → Collectors, pre-filled IP) still appears alongside it for `new_host` alerts.
+Every active/history alert card has an **Investigate ↗** button that jumps straight to Syslog Explorer, pre-filtered to the alert's `collector_ip` (a new `collector_ip` search param/filter, distinct from the existing name-based `collector_name` filter) and a time window around when it fired. The "Unknown collector" link still appears alongside it for `new_host` alerts, now pointing at the Approval page.
 
 ### `dest_ip` — destination IP from netfilter-style logs
 
@@ -527,7 +541,7 @@ unreachable, lines are dropped and counted rather than raised.
 
 **pktLog drops syslog from sources that are not registered.** Its
 `collector_registry` gates what is allowed to persist, so the sending host's IP
-must be present *and enabled* under pktLog's Settings → Collectors. Until then
+must be approved (Approval page) *and enabled*. Until then
 the messages are accepted on the wire and silently discarded — the sender sees
 a successful send either way, because UDP cannot tell it otherwise. pktLog also
 caches that registry for five minutes, so a newly enabled source is not live

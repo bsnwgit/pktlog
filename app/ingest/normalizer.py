@@ -37,16 +37,22 @@ class Normalizer:
         Mutates record in-place and returns it — or returns None if
         record.collector_ip isn't registered and enabled in
         collector_registry, in which case the caller must drop the record.
-        Settings -> Collectors is the gateway for what's allowed to persist:
+        The collector registry is the gateway for what's allowed to persist:
         a device can be sending data on the wire, but nothing gets stored
-        until its IP is added there and marked enabled.
+        until it is approved (Approval page) and marked enabled. Dropped
+        senders are recorded for that page — see app/ingest/pending.py.
         """
         await self._maybe_refresh()
 
         col = self._collector_cache.get(record.collector_ip)
         if not col:
             from app.alerts.engine import AlertEngine
+            from app.ingest import pending
             AlertEngine.notify_unknown_sampler(record.collector_ip)
+            # Also queue it for the Approval page — the alert above only fires
+            # if the new_host rule is enabled, so it can't be the only record
+            # that a device is waiting to be approved.
+            pending.record_unknown(record.collector_ip, record.raw)
             return None
 
         record.collector_name = col["collector_name"]

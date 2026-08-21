@@ -2230,7 +2230,8 @@ function CollectorRegistryTab({ prefillIp = '' }: { prefillIp?: string }) {
         <p className="text-sm font-semibold text-white">Collector Registry</p>
         <HelpButton title="Collector Registry — How It Works">
           <p>This is the <span className="text-gray-300 font-medium">ingest allowlist</span>, not just a labeling table — syslog from a sender IP that's absent here, or present but not marked Enabled, is dropped before storage entirely. It never reaches ClickHouse, and won't show up unlabeled either; it simply doesn't exist as far as the rest of the app is concerned.</p>
-          <p>An unregistered sender instead fires an "Unknown collector" alert with a one-click registration link, so nothing silently vanishes without at least a notification.</p>
+          <p>This tab edits collectors that are <span className="text-gray-300 font-medium">already approved</span>. New senders are admitted on the <span className="text-gray-300 font-medium">Approval</span> page, which lists everything pktLog has seen and dropped — it sits outside Settings so it keeps working when pktHub manages this app and this page goes read-only.</p>
+          <p>An unregistered sender also fires an "Unknown collector" alert linking straight to Approval, so nothing silently vanishes without at least a notification.</p>
           <p>CSV import/export and the downloadable template are for bulk provisioning — useful when onboarding many syslog sources at once instead of one by one.</p>
         </HelpButton>
       </div>
