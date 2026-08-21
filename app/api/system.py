@@ -130,37 +130,39 @@ async def _delayed_restart(delay: float = 1.5) -> None:
 async def run_cleanup() -> dict:
     """
     Manually trigger data retention cleanup:
-      - ClickHouse flows: MATERIALIZE TTL (async mutation, uses retention_days_raw)
-      - ClickHouse hourly rollup: MATERIALIZE TTL (uses retention_days_hourly)
+      - syslog events: set the TTL from retention_days_raw, then MATERIALIZE TTL
+        so parts already on disk are re-checked now (async ClickHouse mutation)
       - SQLite alert_events + notification_log: synchronous delete (uses alert_event_retention_days)
 
-    Returns eligible row counts for ClickHouse (pre-deletion estimate) and
-    exact deleted count for alert events.
+    Returns an eligible row count for ClickHouse (pre-deletion estimate) and
+    exact deleted counts for alert events.
+
+    The ClickHouse half of this endpoint was previously copied unchanged from
+    pktFlow: it imported a class name that does not exist here and counted
+    `flows`/`flows_hourly`, tables pktLog has never had. Both failures landed
+    inside the catch-all below, so the button reported success and did nothing.
     """
     cfg = get_settings()
     storage = get_storage()
 
     # ── Read retention settings from SQLite ───────────────────────────────────
     retention_raw     = 90
-    retention_hourly  = 365
     retention_alerts  = 90
     async with aiosqlite.connect(cfg.db_path) as db:
         async with db.execute(
             "SELECT key, value FROM settings WHERE key IN "
-            "('retention_days_raw','retention_days_hourly','alert_event_retention_days')"
+            "('retention_days_raw','alert_event_retention_days')"
         ) as cur:
             async for row in cur:
                 try:
                     val = int(json.loads(row[1]))
                     if row[0] == 'retention_days_raw':     retention_raw    = val
-                    if row[0] == 'retention_days_hourly':  retention_hourly = val
                     if row[0] == 'alert_event_retention_days': retention_alerts = val
                 except (ValueError, TypeError):
                     pass
 
     result: dict = {
-        "flows_eligible": 0,
-        "hourly_eligible": 0,
+        "events_eligible": 0,
         "alert_events_deleted": 0,
         "notification_log_deleted": 0,
         "status": "ok",
@@ -169,35 +171,38 @@ async def run_cleanup() -> dict:
     # ── ClickHouse: count eligible rows, then queue TTL materialization ───────
     db_name = cfg.clickhouse_database
 
-    def _ch_cleanup():
-        from app.storage.clickhouse import ClickHouseStorage
-        if not isinstance(storage, ClickHouseStorage):
-            return
+    from app.storage.clickhouse import ClickHouseBackend
+    is_clickhouse = isinstance(storage, ClickHouseBackend)
 
-        # Count rows beyond retention threshold (estimate for user feedback)
+    def _ch_cleanup():
+        # Count rows beyond the threshold — an estimate for user feedback, taken
+        # before the mutation is queued rather than after it finishes, since the
+        # mutation is asynchronous and there is nothing exact to report yet.
         rows_q = (
-            f"SELECT count() FROM {db_name}.flows "
+            f"SELECT count() FROM {db_name}.syslog_events "
             f"WHERE timestamp < now() - INTERVAL {retention_raw} DAY"
         )
         r = storage._execute(rows_q)
-        result["flows_eligible"] = int(r[0][0]) if r else 0
+        result["events_eligible"] = int(r[0][0]) if r else 0
 
-        hourly_q = (
-            f"SELECT count() FROM {db_name}.flows_hourly "
-            f"WHERE hour < now() - INTERVAL {retention_hourly} DAY"
-        )
-        r2 = storage._execute(hourly_q)
-        result["hourly_eligible"] = int(r2[0][0]) if r2 else 0
-
-        # Queue TTL materialization (async ClickHouse mutations)
-        storage._execute(f"ALTER TABLE {db_name}.flows MATERIALIZE TTL")
-        storage._execute(f"ALTER TABLE {db_name}.flows_hourly MATERIALIZE TTL")
+        # update_retention_ttl() above is a no-op when the TTL already matches,
+        # so it cannot be relied on to expire anything by itself. This is the
+        # part that makes the button mean "now": it re-checks every existing
+        # part against the TTL instead of waiting for a background merge.
+        storage._execute(f"ALTER TABLE {db_name}.syslog_events MATERIALIZE TTL")
 
     try:
-        await asyncio.to_thread(_ch_cleanup)
-        result["clickhouse_status"] = "queued"
+        # Applies to whichever backend is active: on DuckDB this call *is* the
+        # delete and finishes the job on its own, which is why it runs before
+        # the ClickHouse-only branch rather than inside it.
+        await storage.update_retention_ttl(retention_raw)
+        if is_clickhouse:
+            await asyncio.to_thread(_ch_cleanup)
+            result["clickhouse_status"] = "queued"
+        else:
+            result["clickhouse_status"] = f"n/a (backend is {type(storage).__name__})"
     except Exception as e:
-        log.warning(f"ClickHouse cleanup error: {e}")
+        log.warning(f"Retention cleanup error: {e}")
         result["clickhouse_status"] = f"error: {e}"
 
     # ── SQLite: delete old alert events synchronously ────────────────────────
@@ -220,8 +225,9 @@ async def run_cleanup() -> dict:
         result["alert_events_status"] = f"error: {e}"
 
     log.info(
-        f"Manual cleanup: flows_eligible={result['flows_eligible']}, "
-        f"hourly_eligible={result['hourly_eligible']}, "
+        f"Manual cleanup: retention={retention_raw}d, "
+        f"events_eligible={result['events_eligible']}, "
+        f"clickhouse={result.get('clickhouse_status')}, "
         f"alert_events_deleted={result['alert_events_deleted']}"
     )
     return result
