@@ -174,6 +174,36 @@ class TestNotificationRequest(BaseModel):
     channel: str
 
 
+async def _apply_retention_side_effect(value: Any) -> None:
+    """Push a just-saved retention_days_raw through to the storage backend.
+
+    Shared by the single-key PUT and the bulk save because the Settings page
+    uses the bulk endpoint — which had no side effect at all, so editing the
+    retention window there changed a number in SQLite and nothing else, and the
+    new value only reached the database whenever the daily pass next ran.
+
+    Failures are logged, not raised: the setting is already committed, and the
+    scheduled retention pass will apply it on its own within the day. Turning a
+    transient ClickHouse hiccup into a failed Save — on a request that also
+    carries every other setting on the page — would lose more than it protects.
+    """
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        log.warning("retention_days_raw is not an integer (%r) — TTL not updated", value)
+        return
+    if days <= 0:
+        # Matches app/retention.py: non-positive means "retention disabled",
+        # which is a reason to leave the existing TTL alone, not an error.
+        log.info("retention_days_raw <= 0 — leaving the storage TTL untouched")
+        return
+    try:
+        from app.storage.factory import get_storage
+        await get_storage().update_retention_ttl(days)
+    except Exception as e:
+        log.warning("Could not apply retention TTL (%s) — next scheduled pass will retry", e)
+
+
 @router.put("/{key}")
 async def update_setting(
     key: str,
@@ -199,8 +229,7 @@ async def update_setting(
 
     # Side effects for certain settings
     if key == "retention_days_raw":
-        from app.storage.factory import get_storage
-        await get_storage().update_retention_ttl(int(body.value))
+        await _apply_retention_side_effect(body.value)
 
     return {"key": key, "updated": True}
 
@@ -229,6 +258,10 @@ async def bulk_update(
         )
     await db.commit()
     written = [k for k in updates if k not in skipped]
+
+    if "retention_days_raw" in written:
+        await _apply_retention_side_effect(updates["retention_days_raw"])
+
     return {"updated": written, "skipped": skipped}
 
 
