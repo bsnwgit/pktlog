@@ -43,6 +43,30 @@ const TIME_PRESETS = [
 
 const PAGE_SIZE_OPTIONS = [25, 50, 75, 100]
 
+// ── Field filters ─────────────────────────────────────────────────────────────
+// The five free-text filters, driven from one list so they share the debounce
+// and the Exact toggle rather than each carrying its own copy of the wiring.
+
+type FieldFilters = {
+  sourceIp: string
+  destIp: string
+  collectorIp: string
+  collectorName: string
+  program: string
+}
+
+const FIELD_FILTERS: { key: keyof FieldFilters; placeholder: string; width: string; mono: boolean }[] = [
+  { key: 'sourceIp',      placeholder: 'Source IP…',      width: 'w-40', mono: true  },
+  { key: 'destIp',        placeholder: 'Destination IP…', width: 'w-40', mono: true  },
+  { key: 'collectorIp',   placeholder: 'Collector IP…',   width: 'w-36', mono: true  },
+  { key: 'collectorName', placeholder: 'Collector…',      width: 'w-36', mono: false },
+  { key: 'program',       placeholder: 'Program…',        width: 'w-36', mono: false },
+]
+
+const EMPTY_FIELDS: FieldFilters = {
+  sourceIp: '', destIp: '', collectorIp: '', collectorName: '', program: '',
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toISOStart(minutesAgo: number): string {
@@ -166,13 +190,34 @@ export default function SyslogExplorer() {
   // "Investigate" button (see Alerts.tsx buildInvestigateUrl).
   const [presetIdx, setPresetIdx] = useState(2)       // default: last 6h
   const [severityMax, setSeverityMax] = useState(() => searchParams.get('severity_max') ?? '')
-  const [program, setProgram]   = useState(() => searchParams.get('program') ?? '')
-  const [sourceIp, setSourceIp] = useState(() => searchParams.get('source_ip') ?? '')
-  const [destIp, setDestIp] = useState(() => searchParams.get('dest_ip') ?? '')
-  const [collectorIp, setCollectorIp] = useState(() => searchParams.get('collector_ip') ?? '')
-  const [collectorName, setCollectorName] = useState(() => searchParams.get('collector_name') ?? '')
   const [q, setQ] = useState(() => searchParams.get('q') ?? '')
   const [qDraft, setQDraft] = useState(() => searchParams.get('q') ?? '')
+
+  // The five field filters match case-insensitively, anywhere in the value.
+  // Exact anchors them at the first character instead, so each character typed
+  // narrows the set further rather than the value having to match outright.
+  // It doesn't apply to the message search — a syslog line almost never starts
+  // with the term you're looking for.
+  const [exact, setExact] = useState(false)
+
+  // Those five run as you type, so they're held twice: `fieldDraft` backs the
+  // inputs and updates on every keystroke, `fields` is the debounced copy the
+  // query reads. Sharing one initial object keeps the two identical on mount,
+  // so the debounce below is a no-op until something is actually typed.
+  const initialFields = (): FieldFilters => ({
+    sourceIp:      searchParams.get('source_ip') ?? '',
+    destIp:        searchParams.get('dest_ip') ?? '',
+    collectorIp:   searchParams.get('collector_ip') ?? '',
+    collectorName: searchParams.get('collector_name') ?? '',
+    program:       searchParams.get('program') ?? '',
+  })
+  const [fieldDraft, setFieldDraft] = useState(initialFields)
+  const [fields, setFields] = useState(fieldDraft)
+
+  useEffect(() => {
+    const t = setTimeout(() => setFields(fieldDraft), 300)
+    return () => clearTimeout(t)
+  }, [fieldDraft])
 
   // Absolute time window from a deep link — overrides the preset buttons
   // until the user picks a preset themselves, since an alert's investigate
@@ -203,7 +248,8 @@ export default function SyslogExplorer() {
 
   const search = useCallback(async (off = 0) => {
     abortRef.current?.abort()
-    abortRef.current = new AbortController()
+    const ctl = new AbortController()
+    abortRef.current = ctl
 
     setLoading(true)
     setError('')
@@ -214,15 +260,20 @@ export default function SyslogExplorer() {
         offset: off,
       }
       if (absWindow?.to)  params.end = absWindow.to
-      if (severityMax !== '') params.severity_max = Number(severityMax)
-      if (program)        params.program = program
-      if (sourceIp)       params.source_ip = sourceIp
-      if (destIp)         params.dest_ip = destIp
-      if (collectorIp)    params.collector_ip = collectorIp
-      if (collectorName)  params.collector_name = collectorName
-      if (q)              params.q = q
+      if (severityMax !== '')   params.severity_max = Number(severityMax)
+      if (fields.program)       params.program = fields.program
+      if (fields.sourceIp)      params.source_ip = fields.sourceIp
+      if (fields.destIp)        params.dest_ip = fields.destIp
+      if (fields.collectorIp)   params.collector_ip = fields.collectorIp
+      if (fields.collectorName) params.collector_name = fields.collectorName
+      if (q)                    params.q = q
+      if (exact)                params.match_mode = 'prefix'
 
-      const res = await api.searchSyslog(params)
+      const res = await api.searchSyslog(params, ctl.signal)
+      // A response that arrives after its request was superseded must not
+      // overwrite the newer one's results — the abort usually prevents this,
+      // but a request already on the wire can still land first.
+      if (abortRef.current !== ctl) return
       setRecords(res.records)
       setTotal(res.total)
       setOffset(off)
@@ -230,9 +281,9 @@ export default function SyslogExplorer() {
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message ?? 'Search failed')
     } finally {
-      setLoading(false)
+      if (abortRef.current === ctl) setLoading(false)
     }
-  }, [presetIdx, severityMax, program, sourceIp, destIp, collectorIp, collectorName, q, absWindow, pageSize])
+  }, [presetIdx, severityMax, fields, exact, q, absWindow, pageSize])
 
   // Run on mount and when filters change
   useEffect(() => { search(0) }, [search])
@@ -250,8 +301,9 @@ export default function SyslogExplorer() {
         <h1 className="text-xl font-bold text-white">Syslog Explorer</h1>
         <HelpButton title="Syslog Explorer — How It Works">
           <p>Queries hit raw syslog records directly, server-side paginated — timestamps are displayed in the app's configured timezone (Settings → General), not your browser's local zone.</p>
-          <p>Only messages from a <span className="text-gray-300 font-medium">registered, enabled collector</span> (Settings → Collectors) ever reach storage — a device sending syslog on the wire that isn't registered won't appear here at all, not even unlabeled.</p>
+          <p>Only messages from a <span className="text-gray-300 font-medium">registered, enabled collector</span> ever reach storage — a device sending syslog on the wire that isn't registered won't appear here at all, not even unlabeled. If something is missing, check the <span className="text-gray-300 font-medium">Approval</span> page: senders pktLog has seen but dropped are queued there waiting to be admitted.</p>
           <p>Rows expand in place for the full raw message — useful for headerless or non-standard formats (some devices send syslog-shaped lines with no <code className="text-gray-400">&lt;PRI&gt;</code> header, or no header at all) that still get parsed into a real message rather than showing up as unparseable.</p>
+          <p>The <span className="text-gray-300 font-medium">Source / Destination / Collector / Program</span> boxes filter as you type and match case-insensitively, anywhere in the value — <code className="text-gray-400">203</code> finds <code className="text-gray-400">10.0.203.7</code>. Ticking <span className="text-gray-300 font-medium">Exact</span> anchors all five at the first character instead, so they narrow from the left as you type. The message box is always a full-text search and ignores Exact.</p>
           <p><span className="text-gray-300 font-medium">Destination</span> is only populated for messages that embed a <code className="text-gray-400">DST=</code> field in their content (netfilter/firewall-style logs) — most syslog lines have no concept of a destination IP, so this column is blank for them, not broken.</p>
         </HelpButton>
       </div>
@@ -318,44 +370,28 @@ export default function SyslogExplorer() {
 
         {/* Row 2: source, collector, program filters */}
         <div className="flex items-center gap-3 flex-wrap">
-          <input
-            type="text"
-            value={sourceIp}
-            onChange={e => setSourceIp(e.target.value)}
-            placeholder="Source IP…"
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-40 font-mono"
-          />
-          <input
-            type="text"
-            value={destIp}
-            onChange={e => setDestIp(e.target.value)}
-            placeholder="Destination IP…"
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-40 font-mono"
-          />
-          <input
-            type="text"
-            value={collectorIp}
-            onChange={e => setCollectorIp(e.target.value)}
-            placeholder="Collector IP…"
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-36 font-mono"
-          />
-          <input
-            type="text"
-            value={collectorName}
-            onChange={e => setCollectorName(e.target.value)}
-            placeholder="Collector…"
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-36"
-          />
-          <input
-            type="text"
-            value={program}
-            onChange={e => setProgram(e.target.value)}
-            placeholder="Program…"
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 w-36"
-          />
+          {FIELD_FILTERS.map(f => (
+            <input
+              key={f.key}
+              type="text"
+              value={fieldDraft[f.key]}
+              onChange={e => setFieldDraft(d => ({ ...d, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+              className={`bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 ${f.width} ${f.mono ? 'font-mono' : ''}`}
+            />
+          ))}
+          <label className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={exact}
+              onChange={e => setExact(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+            />
+            Exact
+          </label>
           <button
             onClick={() => {
-              setSourceIp(''); setDestIp(''); setCollectorIp(''); setCollectorName(''); setProgram('')
+              setFieldDraft(EMPTY_FIELDS)
               setSeverityMax(''); setQDraft(''); setQ(''); setAbsWindow(null)
             }}
             className="text-xs text-gray-500 hover:text-white transition-colors ml-auto"

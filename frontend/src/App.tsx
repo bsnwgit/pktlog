@@ -7,6 +7,7 @@ import { lazy, Suspense } from 'react'
 const Dashboard      = lazy(() => import('./pages/Dashboard'))
 const SyslogExplorer = lazy(() => import('./pages/SyslogExplorer'))
 const Alerts         = lazy(() => import('./pages/Alerts'))
+const Approval       = lazy(() => import('./pages/Approval'))
 const Settings       = lazy(() => import('./pages/Settings'))
 const Logs           = lazy(() => import('./pages/Logs'))
 const Documentation  = lazy(() => import('./pages/Documentation'))
@@ -23,6 +24,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
   if (isLoading) return <PageFallback />
   if (!user) return <Navigate to="/login" replace />
+  return <Layout chromeless={isChromeless}>{children}</Layout>
+}
+
+// Hiding the nav entry isn't access control — a non-admin can still type the
+// URL. The API is admin-gated too; this just avoids rendering a page whose
+// every call would 403.
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth()
+  if (isLoading) return <PageFallback />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/" replace />
   return <Layout chromeless={isChromeless}>{children}</Layout>
 }
 
@@ -53,6 +65,11 @@ export default function App() {
             <ProtectedRoute>
               <Suspense fallback={<PageFallback />}><Alerts /></Suspense>
             </ProtectedRoute>
+          } />
+          <Route path="/approval" element={
+            <AdminRoute>
+              <Suspense fallback={<PageFallback />}><Approval /></Suspense>
+            </AdminRoute>
           } />
           <Route path="/settings" element={
             <ProtectedRoute>

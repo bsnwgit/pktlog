@@ -75,6 +75,7 @@ const NAV = [
   { to: '/explorer', label: 'Explorer',  icon: '⊞', adminOnly: false },
   { to: '/alerts',   label: 'Alerts',    icon: '△', adminOnly: false, dividerBefore: true },
   { to: '/logs',     label: 'Logs',      icon: '≡', adminOnly: false },
+  { to: '/approval', label: 'Approval',  icon: '✓', adminOnly: true,  dividerBefore: true },
   { to: '/settings', label: 'Settings',  icon: '⚙', adminOnly: false, dividerBefore: true },
 ]
 
@@ -122,6 +123,7 @@ function AutoRefreshControl() {
 export default function Layout({ children, chromeless = false }: { children: ReactNode; chromeless?: boolean }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const visibleNav = NAV.filter(n => !n.adminOnly || user?.role === 'admin')
   const [unacked, setUnacked] = useState<number>(0)
   const [showChangePw, setShowChangePw] = useState(false)
   const [managedMode, setManagedMode] = useState(false)
@@ -177,9 +179,15 @@ export default function Layout({ children, chromeless = false }: { children: Rea
         </div>
 
         <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {NAV.filter(n => !n.adminOnly || user?.role === 'admin').map(({ to, label, icon, dividerBefore }) => (
+          {visibleNav.map(({ to, label, icon, dividerBefore }, i) => (
             <div key={to}>
-              {dividerBefore && <div className="h-px bg-blue-500/25 mx-3 my-3" />}
+              {/* dividerBefore marks the start of a group, so consecutive ones
+                  collapse to a single rule. Approval and Settings both claim it
+                  because Approval is admin-only — without that, hiding Approval
+                  would take the divider above Settings away with it. */}
+              {dividerBefore && !visibleNav[i - 1]?.dividerBefore && (
+                <div className="h-px bg-blue-500/25 mx-3 my-3" />
+              )}
               <NavLink
                 to={to}
                 end={to === '/'}

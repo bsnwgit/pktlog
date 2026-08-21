@@ -33,6 +33,18 @@ _INSERT_COLS = """
 """
 
 
+def _text_filter(column: str, param: str, match_mode: str) -> str:
+    """Case-insensitive text condition for a free-text field filter.
+
+    `positionCaseInsensitive` returns the 1-based position of the needle, or 0
+    when absent — so `> 0` is "contains anywhere" and `= 1` is "starts with".
+    The Explorer's "Exact" checkbox selects the anchored form, which narrows
+    progressively as the user types rather than only matching a whole value.
+    """
+    op = "= 1" if match_mode == "prefix" else "> 0"
+    return f"positionCaseInsensitive({column}, %({param})s) {op}"
+
+
 class ClickHouseBackend(StorageBackend):
 
     def __init__(self):
@@ -115,6 +127,7 @@ class ClickHouseBackend(StorageBackend):
         facility: Optional[int] = None,
         program: Optional[str] = None,
         search: Optional[str] = None,
+        match_mode: str = "contains",
         limit: int = 200,
         offset: int = 0,
     ) -> dict:
@@ -128,16 +141,16 @@ class ClickHouseBackend(StorageBackend):
             conditions.append("timestamp <= %(end)s")
             params["end"] = end
         if source_ip:
-            conditions.append("source_ip = %(source_ip)s")
+            conditions.append(_text_filter("source_ip", "source_ip", match_mode))
             params["source_ip"] = source_ip
         if dest_ip:
-            conditions.append("dest_ip = %(dest_ip)s")
+            conditions.append(_text_filter("dest_ip", "dest_ip", match_mode))
             params["dest_ip"] = dest_ip
         if collector_ip:
-            conditions.append("collector_ip = %(collector_ip)s")
+            conditions.append(_text_filter("collector_ip", "collector_ip", match_mode))
             params["collector_ip"] = collector_ip
         if collector_name:
-            conditions.append("collector_name = %(collector_name)s")
+            conditions.append(_text_filter("toString(collector_name)", "collector_name", match_mode))
             params["collector_name"] = collector_name
         if org:
             conditions.append("org = %(org)s")
@@ -155,7 +168,7 @@ class ClickHouseBackend(StorageBackend):
             conditions.append("facility = %(facility)s")
             params["facility"] = facility
         if program:
-            conditions.append("program = %(program)s")
+            conditions.append(_text_filter("program", "program", match_mode))
             params["program"] = program
         if search:
             conditions.append("positionCaseInsensitive(message, %(search)s) > 0")

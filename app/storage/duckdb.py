@@ -195,6 +195,19 @@ class _ReadPool:
 
 # ── Backend ───────────────────────────────────────────────────────────────────
 
+
+def _text_pattern(term: str, match_mode: str) -> str:
+    """ILIKE pattern for a free-text field filter.
+
+    LIKE wildcards in the user's term are escaped so a literal `_` in a
+    hostname can't silently match any character. "prefix" anchors the term at
+    the first character (the Explorer's "Exact" checkbox); anything else
+    matches it anywhere in the value.
+    """
+    esc = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{esc}%" if match_mode == "prefix" else f"%{esc}%"
+
+
 class DuckDBBackend(StorageBackend):
 
     def __init__(self):
@@ -326,6 +339,7 @@ class DuckDBBackend(StorageBackend):
         facility: Optional[int] = None,
         program: Optional[str] = None,
         search: Optional[str] = None,
+        match_mode: str = "contains",
         limit: int = 200,
         offset: int = 0,
     ) -> dict:
@@ -337,13 +351,17 @@ class DuckDBBackend(StorageBackend):
             if end:
                 conditions.append("timestamp <= ?"); params.append(end)
             if source_ip:
-                conditions.append("source_ip = ?"); params.append(source_ip)
+                conditions.append("source_ip ILIKE ? ESCAPE '\\'")
+                params.append(_text_pattern(source_ip, match_mode))
             if dest_ip:
-                conditions.append("dest_ip = ?"); params.append(dest_ip)
+                conditions.append("dest_ip ILIKE ? ESCAPE '\\'")
+                params.append(_text_pattern(dest_ip, match_mode))
             if collector_ip:
-                conditions.append("collector_ip = ?"); params.append(collector_ip)
+                conditions.append("collector_ip ILIKE ? ESCAPE '\\'")
+                params.append(_text_pattern(collector_ip, match_mode))
             if collector_name:
-                conditions.append("collector_name = ?"); params.append(collector_name)
+                conditions.append("collector_name ILIKE ? ESCAPE '\\'")
+                params.append(_text_pattern(collector_name, match_mode))
             if org:
                 conditions.append("org = ?"); params.append(org)
             if log_group:
@@ -355,7 +373,8 @@ class DuckDBBackend(StorageBackend):
             if facility is not None:
                 conditions.append("facility = ?"); params.append(facility)
             if program:
-                conditions.append("program = ?"); params.append(program)
+                conditions.append("program ILIKE ? ESCAPE '\\'")
+                params.append(_text_pattern(program, match_mode))
             if search:
                 conditions.append("message ILIKE ?"); params.append(f"%{search}%")
 
