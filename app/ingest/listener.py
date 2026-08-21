@@ -109,8 +109,8 @@ async def _process(raw: str, collector_ip: str, received_at: datetime) -> None:
         normalizer = get_normalizer()
         enriched = await normalizer.enrich(record)
         if enriched is None:
-            # Collector not registered + enabled in Settings -> Collectors —
-            # dropped, not stored.
+            # Collector not approved + enabled in the registry — dropped,
+            # not stored. enrich() has queued it for the Approval page.
             return
         writer = get_writer()
         await writer.enqueue(enriched)
