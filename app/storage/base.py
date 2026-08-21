@@ -39,10 +39,19 @@ class StorageBackend(ABC):
         facility: Optional[int] = None,
         program: Optional[str] = None,
         search: Optional[str] = None,
+        match_mode: str = "contains",
         limit: int = 200,
         offset: int = 0,
     ) -> dict:
-        """Filtered syslog search. Returns {total, limit, offset, records}."""
+        """Filtered syslog search. Returns {total, limit, offset, records}.
+
+        `match_mode` governs the free-text field filters (source_ip, dest_ip,
+        collector_ip, collector_name, program) — "contains" matches the term
+        anywhere in the value, "prefix" anchors it at the first character.
+        Both are case-insensitive. `search` (message body) is always
+        "contains" — anchoring a full-text query to the start of a syslog
+        message would never match anything useful.
+        """
 
     @abstractmethod
     async def count_by_severity(self, hours: int = 24) -> list[dict]:
