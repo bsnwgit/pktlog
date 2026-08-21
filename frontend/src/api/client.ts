@@ -115,14 +115,33 @@ export const api = {
   getSyslogStats: (hours = 24) =>
     request<SyslogStats>(`/syslog/stats?hours=${hours}`),
 
-  searchSyslog: (params: SyslogSearchParams) =>
-    request<SyslogSearchResult>(`/syslog/search?${buildQS(params)}`),
+  // Takes a signal so the Explorer can cancel superseded requests as the user
+  // types — without it, an earlier keystroke's response can land after the
+  // latest one and overwrite good results with a stale (usually empty) set.
+  searchSyslog: (params: SyslogSearchParams, signal?: AbortSignal) =>
+    request<SyslogSearchResult>(`/syslog/search?${buildQS(params)}`, { signal }),
 
   getSyslogTimeseries: (hours = 6, bucketMinutes = 5, logGroup?: string) => {
     const qs = new URLSearchParams({ hours: String(hours), bucket_minutes: String(bucketMinutes) })
     if (logGroup) qs.set('log_group', logGroup)
     return request<SyslogTimeseriesPoint[]>(`/syslog/timeseries?${qs}`)
   },
+
+  // ── Collector approval ────────────────────────────────────────────────────
+  // Admin-only. Deliberately not part of Settings: that page goes read-only
+  // when pktHub manages the app, which would otherwise force a managed
+  // install over to pktHub just to admit a device.
+  getPendingCollectors: (includeIgnored = false) =>
+    request<PendingCollector[]>(`/approval/pending?include_ignored=${includeIgnored}`),
+  getPendingCount: () => request<{ pending: number }>('/approval/count'),
+  approveCollector: (body: CollectorIn) =>
+    request<Collector>('/approval/approve', { method: 'POST', body: JSON.stringify(body) }),
+  ignorePendingCollector: (ip: string) =>
+    request<{ ok: boolean }>(`/approval/${encodeURIComponent(ip)}/ignore`, { method: 'POST' }),
+  unignorePendingCollector: (ip: string) =>
+    request<{ ok: boolean }>(`/approval/${encodeURIComponent(ip)}/unignore`, { method: 'POST' }),
+  forgetPendingCollector: (ip: string) =>
+    request(`/approval/${encodeURIComponent(ip)}`, { method: 'DELETE' }),
 
   // ── Collector registry ────────────────────────────────────────────────────
   getCollectors: () => request<Collector[]>('/collectors/'),
@@ -522,8 +541,22 @@ export type SyslogSearchParams = {
   facility?: number
   program?: string
   q?: string
+  // How the field filters above match: anywhere in the value (default), or
+  // anchored at the first character (the Explorer's "Exact" checkbox).
+  match_mode?: 'contains' | 'prefix'
   limit?: number
   offset?: number
+}
+
+// A sender seen at ingest that isn't registered — its messages are being
+// dropped until someone approves it.
+export interface PendingCollector {
+  collector_ip: string
+  first_seen: string
+  last_seen: string
+  message_count: number
+  sample_message: string
+  ignored: number
 }
 
 // Collector registry

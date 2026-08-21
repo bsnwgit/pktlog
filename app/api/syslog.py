@@ -45,12 +45,21 @@ async def search_logs(
     program:        Optional[str]  = Query(None),
     # Text search
     q:              Optional[str]  = Query(None, description="Full-text search in message field"),
+    # Matching mode for the field filters above (source_ip, dest_ip, collector_ip,
+    # collector_name, program). "contains" is the default; "prefix" is what the
+    # Explorer's "Exact" checkbox sends. Both are case-insensitive. `q` is always
+    # "contains" — anchoring a message-body search to the start of the line
+    # would never match anything useful.
+    match_mode:     str = Query("contains", pattern="^(contains|prefix)$"),
     # Pagination
     limit:          int = Query(200, ge=1, le=1000),
     offset:         int = Query(0, ge=0),
 ):
     """
     Filtered syslog search.
+
+    Field filters match case-insensitively — anywhere in the value by default,
+    or anchored at the first character with `match_mode=prefix`.
 
     Returns `{total, limit, offset, records[]}` where each record maps
     directly to a ClickHouse syslog_events row.
@@ -70,6 +79,7 @@ async def search_logs(
             facility=facility,
             program=program,
             search=q,
+            match_mode=match_mode,
             limit=limit,
             offset=offset,
         )
