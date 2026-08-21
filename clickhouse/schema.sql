@@ -40,5 +40,8 @@ CREATE TABLE IF NOT EXISTS pktlog.syslog_events
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (org, log_group, source_ip, timestamp)
+-- Starting value only. The retention scheduler (app/retention.py) rewrites this
+-- clause from the `retention_days_raw` setting on its first pass after startup,
+-- so an install that configures a different window does not need this edited.
 TTL toDateTime(timestamp) + INTERVAL 90 DAY
 SETTINGS index_granularity = 8192;

@@ -243,8 +243,7 @@ export const api = {
     }),
   runCleanup: () =>
     request<{
-      flows_eligible: number
-      hourly_eligible: number
+      events_eligible: number
       alert_events_deleted: number
       notification_log_deleted: number
       clickhouse_status: string

@@ -78,6 +78,27 @@ class StorageBackend(ABC):
     async def collector_last_seen(self) -> list[dict]:
         """Last received timestamp per collector — used for data-gap alerting."""
 
+    @abstractmethod
+    async def update_retention_ttl(self, days: int) -> None:
+        """Enforce a `days`-day retention window on the syslog event store.
+
+        Deliberately abstract rather than a no-op default. This method is the
+        only thing standing between an appliance and unbounded disk growth, and
+        it went missing on the ClickHouse backend for months — every scheduled
+        pass raising AttributeError into a log nobody reads while the Settings
+        page went on displaying a retention window that was enforcing nothing.
+        A default here would have swallowed that just as quietly; an
+        abstractmethod makes the same omission fail at instantiation, on
+        startup, in front of whoever added the backend.
+
+        What the method *does* is backend-specific and the two differ in kind:
+        on DuckDB it performs the delete itself, so it has to be re-run to have
+        any ongoing effect; on ClickHouse it only rewrites the table's TTL,
+        after which the database expires rows continuously on its own. Callers
+        should treat it as "make the configured window true", not "delete now",
+        and must not assume rows are gone by the time it returns.
+        """
+
     # ── Alert-engine metrics ─────────────────────────────────────────────────
     # Concrete (non-abstract) with safe zero/empty defaults so a backend that
     # hasn't implemented them (e.g. DuckDB) degrades gracefully instead of
