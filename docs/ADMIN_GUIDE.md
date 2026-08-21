@@ -19,7 +19,7 @@ Open the firewall for the app port and the syslog ingest port (`8768/tcp`, `5514
 ## First-time setup checklist
 
 1. **Change the admin password.**
-2. **Register your syslog-sending devices as collectors** (Settings → Collectors). This is a hard ingest gate, not just labeling — a device sending syslog on the wire won't have anything persisted until it's added here and marked enabled; until then it only produces an unknown-collector alert with a one-click registration link.
+2. **Approve your syslog-sending devices** (Approval page, admin-only, directly above Settings). This is a hard ingest gate, not just labeling — a device sending syslog on the wire won't have anything persisted until it's approved and marked enabled. Senders pktLog has seen and dropped are queued on that page with a dropped-message count and a sample line; approving one creates its collector registry entry. Settings → Collectors remains where you edit collectors you've already approved.
 3. **Set the Timezone** (Settings → General) — this affects both UI display and how RFC 3164 timestamps (which carry no timezone marker of their own) are interpreted for storage. Get this right before you rely on timestamps for investigation; many real devices (UniFi APs/gateways observed in practice) log in local time, not UTC.
 4. **Configure alert notification channels** so the team hears about new/unknown collectors and anything else you set up rules for.
 5. **Set up backups** (Data → Backups) and confirm a manual run succeeds.
@@ -68,7 +68,7 @@ A section bar at the top of the page splits Settings into **Common** — the tab
 
 ## Collector registry (ingest gating)
 
-`app/ingest/normalizer.py`'s `enrich()` returns `None` — record dropped, never reaches storage — for any `collector_ip` not present and `enabled=1` in the collector registry. Register every real syslog source under Settings → Collectors before expecting its data to show up. An unregistered sender instead fires a `new_host`/"Unknown collector" alert with a one-click "Register collector →" link rather than silently vanishing without a trace.
+`app/ingest/normalizer.py`'s `enrich()` returns `None` — record dropped, never reaches storage — for any `collector_ip` not present and `enabled=1` in the collector registry. Approve every real syslog source on the Approval page before expecting its data to show up. The drop path also records the sender in `pending_collectors` (via `app/ingest/pending.py`, flushed once per 60s alert tick) so it appears in that queue, and fires a `new_host`/"Unknown collector" alert linking to it, rather than silently vanishing without a trace.
 
 ## Timestamp handling
 
@@ -115,7 +115,7 @@ Six channels, all configured on the Notifications tab and dispatched from `app/a
 | Symptom | Check |
 |---|---|
 | Service won't start | `journalctl -u pktlog -n 50`; check `config.yaml` paths and secret key |
-| A device is sending syslog but nothing shows up | Is it registered and enabled under Settings → Collectors? Check for an "Unknown collector" alert instead |
+| A device is sending syslog but nothing shows up | Check the Approval page — it is almost certainly queued there awaiting approval. Also confirm an already-approved collector is still marked enabled |
 | Timestamps look shifted by a fixed offset | Check the Timezone setting (Settings → General) against how the sending device actually logs (local time vs. UTC) |
 | Locked out of every account | Reset the admin password directly against SQLite (see Users & roles above) |
 | A restored `config.yaml` didn't take effect | Restart the service — restoring never does this automatically |

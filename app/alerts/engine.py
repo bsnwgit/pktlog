@@ -68,6 +68,15 @@ class AlertEngine:
             # Process unknown sampler queue
             await self._check_unknown_samplers(db)
 
+            # Fold ingest's unregistered-sender counters into pending_collectors
+            # for the Approval page. Batched here rather than written per
+            # dropped message; this loop is the app's one always-on tick.
+            from app.ingest import pending
+            try:
+                await pending.flush(db)
+            except Exception as e:
+                log.warning(f"Could not flush pending collectors: {e}")
+
     async def _evaluate_rule(self, db: aiosqlite.Connection, rule: dict) -> None:
         from app.storage.factory import get_storage
 

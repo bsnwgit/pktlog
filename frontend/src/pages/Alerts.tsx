@@ -537,10 +537,10 @@ function EventCard({ event, onAck, timezone }: { event: AlertEvent; onAck: (id: 
             )}
             {unknownIp && (
               <Link
-                to={`/settings?tab=devices&register_ip=${encodeURIComponent(unknownIp)}`}
+                to="/approval"
                 className="inline-block mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
               >
-                Register collector {unknownIp} →
+                Approve collector {unknownIp} →
               </Link>
             )}
           </div>
