@@ -307,6 +307,7 @@ function ResonanceDiagnostics({ baseUrl, keyValue }: { baseUrl: string; keyValue
   }
 
   const origin = result?.origin || status?.origin || ''
+  const detected = result?.detected_origin || status?.detected_origin || ''
   const cap = (result?.cap || {}) as Record<string, unknown>
   const failures = status?.load_failures
 
@@ -327,7 +328,7 @@ function ResonanceDiagnostics({ baseUrl, keyValue }: { baseUrl: string; keyValue
 
         <div>
           <p className="text-xs text-white mb-1">
-            This install&rsquo;s origin — resonance will only frame the widget on origins listed on the key.
+            Origin to list on the resonance key — the widget stays blank on any origin that is not listed.
           </p>
           <div className="flex items-center gap-2">
             <code className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white font-mono">{origin || '—'}</code>
@@ -337,6 +338,16 @@ function ResonanceDiagnostics({ baseUrl, keyValue }: { baseUrl: string; keyValue
               className="text-xs text-blue-400 hover:text-blue-300"
             >{copied ? 'Copied' : 'Copy'}</button>
           </div>
+          {detected && detected !== origin ? (
+            <p className="text-xs text-gray-500 mt-1">
+              Set manually. Auto-detection saw <span className="font-mono">{detected}</span> — the internal address, if a proxy sits in front.
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500 mt-1">
+              Auto-detected. If a reverse proxy terminates TLS in front of pktLog this will be the internal
+              address rather than the one users type — set it explicitly above.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -1236,6 +1247,7 @@ export default function Settings() {
   const lucidSave = useSave(['lucid_api_token'], settings, load)
   const resonanceSave = useSave([
     'resonance_enabled', 'resonance_base_url', 'resonance_key', 'resonance_roles',
+    'resonance_origin',
     'resonance_style', 'resonance_target', 'resonance_label', 'resonance_side',
     'resonance_width', 'resonance_height', 'resonance_open', 'resonance_exclude_paths',
   ], settings, load)
@@ -1980,6 +1992,9 @@ export default function Settings() {
           </Field>
           <Field label="Key" hint="One key per placement. Stored encrypted; never sent to the browser.">
             <TextInput value={str('resonance_key')} onChange={v => set('resonance_key', v)} placeholder="e0000000000.…" secret mono />
+          </Field>
+          <Field label="This install's origin" hint="The address a browser uses to reach pktLog — this exact string must be listed on the resonance key. Leave blank to detect it automatically. Behind a reverse proxy the detection sees the internal address, not the one users type, so set it here.">
+            <TextInput value={str('resonance_origin')} onChange={v => set('resonance_origin', v)} placeholder="https://pktlog.example.com" mono />
           </Field>
           <Field label="Who can use it" hint="Roles permitted to load the widget. Everyone else gets no launcher at all.">
             <div className="flex items-center gap-4">

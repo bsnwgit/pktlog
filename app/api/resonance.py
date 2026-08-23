@@ -108,6 +108,32 @@ async def _client(db: aiosqlite.Connection, base_url: str = "", key: str = "") -
 
 # ── Request-origin checks for the cookie route ────────────────────────────────
 
+def _detected_origin(request: Request) -> str:
+    """Best guess at the address a browser used to reach this app.
+
+    uvicorn is not started with --proxy-headers, so request.url.scheme and the
+    Host header describe the *internal* endpoint whenever a reverse proxy sits
+    in front — an install reached at https://logs.example.com over 443 reports
+    itself as http://10.0.0.5:8768. X-Forwarded-* is read here because a guess
+    that matches reality most of the time is more useful than one that is
+    reliably wrong, but this is only ever a suggestion: it is displayed for an
+    admin to confirm or replace, never trusted for a security decision.
+    """
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    if not proto:
+        proto = request.url.scheme
+    if not host:
+        host = request.headers.get("host", "")
+    return f"{proto}://{host}" if host else ""
+
+
+async def _effective_origin(db: aiosqlite.Connection, request: Request) -> str:
+    """The configured origin if an admin set one, otherwise the detection."""
+    override = (await _get(db, "resonance_origin", "") or "").strip().rstrip("/")
+    return override or _detected_origin(request)
+
+
 def _same_origin(request: Request) -> bool:
     """Reject anything that presents as cross-site before the cookie is used.
 
@@ -117,16 +143,25 @@ def _same_origin(request: Request) -> bool:
     another site and a session code.
     """
     fetch_site = request.headers.get("sec-fetch-site", "")
-    if fetch_site and fetch_site not in ("same-origin", "none"):
-        return False
+    if fetch_site:
+        # Browser-generated and not settable from page script, so where it exists
+        # it is the whole answer. Every current browser sends it.
+        return fetch_site in ("same-origin", "none")
 
+    # Fallback for a client that does not send Sec-Fetch-Site. Comparing Origin
+    # against Host is only meaningful when Host is the one the browser used —
+    # a proxy that rewrites it to the internal address would otherwise make this
+    # reject every legitimate request. Accept the forwarded host as well.
     origin = request.headers.get("origin", "")
-    if origin:
-        host = request.headers.get("host", "")
-        if urlsplit(origin).netloc != host:
-            return False
+    if not origin:
+        return True
 
-    return True
+    seen = urlsplit(origin).netloc
+    candidates = {
+        request.headers.get("host", ""),
+        (request.headers.get("x-forwarded-host") or "").split(",")[0].strip(),
+    }
+    return seen in {c for c in candidates if c}
 
 
 async def _user_for_code(request: Request, db: aiosqlite.Connection) -> dict | None:
@@ -272,7 +307,7 @@ async def resonance_test(
         key = ""
 
     client = await _client(db, base_url, key)
-    origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+    origin = await _effective_origin(db, request)
 
     if not client.configured:
         return {
@@ -303,6 +338,7 @@ async def resonance_test(
     return {
         "ok": True,
         "origin": origin,
+        "detected_origin": _detected_origin(request),
         "user_id_sent": build_user_id(user["username"]),
         "parts": result.get("parts", []),
         "cap": result.get("cap", {}),
@@ -319,7 +355,8 @@ async def resonance_status(
     await reports.prune(db)
     return {
         "module_version": RESONANCE_MODULE_VERSION,
-        "origin": f"{request.url.scheme}://{request.headers.get('host', '')}",
+        "origin": await _effective_origin(db, request),
+        "detected_origin": _detected_origin(request),
         "breaker": await limiter.state(db),
         "load_failures": await reports.summary(db, days=7),
     }
