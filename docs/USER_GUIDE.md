@@ -40,6 +40,16 @@ A **?** button near almost every page and Settings section opens a short explana
 
 For longer-form documentation, click **Documentation** in the sidebar (just above your account info) — it opens this guide and the Administrator Guide as in-app tabs, so you don't need the repo checked out to read them.
 
+## The assistant
+
+If your administrator has set it up, a launcher sits in the bottom corner of every page. Click it to ask questions in a chat panel. The panel is provided by the resonance server, so what it can help with depends on how your administrator configured it there.
+
+It knows who you are — your login is passed along so your conversation is attributed to you — but it does **not** see the page you are on or the search you just ran. Include the detail you want it to work with in your question.
+
+If the launcher never appears, either your role is not on the permitted list or the assistant could not load. Your administrator can see both under Settings → Resonance.
+
+Voice, where the key allows it, requires pktLog to be served over HTTPS. On a plain HTTP install the microphone is hidden rather than shown as a button that cannot work.
+
 ## Your account
 
 Manage your own password from the user menu (unless your account uses SSO, in which case that's handled by your identity provider). Your personal lookup-provider API keys live under Settings → User Keys, visible only to you.

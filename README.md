@@ -404,6 +404,76 @@ Separately from the inbound `suite_token` above, pktLog has a backend API (`/api
 
 ---
 
+## Resonance (embedded assistant)
+
+Resonance is the suite's shared assistant. It mounts as a launcher in the bottom corner of every authenticated page — the same place the removed in-app AI Assistant sat — but the assistant runs on the resonance server, not inside pktLog.
+
+pktLog is the reference implementation for the whole suite: `app/integrations/resonance/` and `frontend/src/resonance/` are **vendored**, meaning they are copied between pkt\* apps byte-for-byte except for `APP_SLUG`. They are deliberately not a published package, because `install.sh` builds a venv on customer hosts and a private index would put a credentialed network dependency in the middle of every install.
+
+### How a session is established
+
+```
+browser                 pktLog                       resonance
+───────                 ──────                       ─────────
+embed.js  ──GET──▶  /api/resonance/code  ──POST──▶  /embed/session
+          ◀─code──                       ◀─code───
+frame ──────────────────────────────────────────────▶  /embed?c=<code>
+```
+
+pktLog vouches for whoever is signed in and receives a short-lived, single-use code. The key never reaches the browser, and resonance never sees a pktLog credential. The identity sent is `pktlog-<username>` — app and login together, so resonance's audit trail shows both. No email address is sent.
+
+`GET /api/resonance/code` is the one cookie-authenticated route in the app. embed.js fetches `data-code-url` itself, outside the SPA, and pktLog's access token lives in memory by design, so the refresh cookie is the only credential the browser will attach. It is validated the way `/api/auth/refresh` validates it and is not rotated. `Sec-Fetch-Site` and `Origin` are both checked before the cookie is honoured, so the route does not rest on `SameSite` alone.
+
+### Setting it up
+
+**On the resonance side**
+
+1. Create a key for this pktLog install. One key is one placement.
+1. Note the **interface server** address — the one enrolled under SETTINGS ▸ ENROLL ▸ Enroll Embed Server, which is *not* the admin portal. The admin portal serves `embed.js` as well, so pointing at it looks correct until `/embed/session` answers `404`.
+2. Set its session TTL to **480 minutes**, matching pktLog's own `session_timeout_minutes`. The panel warns when they disagree.
+3. Turn on **Speakers Name** (`needs_user`). Without it resonance records nothing at all — no audit trail for who asked what.
+4. Add this install's **origin** to the key's allow-list. The exact string is shown, ready to copy, under Settings → Resonance → Diagnostics.
+5. Authorise the key against a profile scoped to pktLog — see Guardrails below.
+
+**On the pktLog side**
+
+Settings → Resonance: paste the interface server address and key, choose which roles may use it, press **Test Connection**, then switch **Enabled** on. Test works whether or not the feature is enabled, on purpose — an admin must be able to prove a key before putting a widget in front of users, and to diagnose one after turning it off.
+
+### Prerequisites
+
+- **Resonance must be reachable from the browser over HTTPS with a certificate those browsers already trust.** A self-signed or internal-CA certificate produces an empty widget with nothing in the console explaining why. There is no `verify=False` for browsers.
+- **pktLog itself must be on HTTPS for voice.** `getUserMedia` is gated on a secure context, so over plain HTTP the microphone cannot work however the key is configured. pktLog detects this and narrows the microphone away rather than showing a control that does nothing. Text chat is unaffected.
+
+### Guardrails — enforced in resonance, not here
+
+**pktLog cannot restrict what the assistant will discuss.** The input box lives in resonance's iframe on resonance's origin; pktLog cannot see what is typed, cannot intercept it, and has no field in the session contract to assert a topic scope. Anything claiming otherwise would be theatre.
+
+Scope is enforced by the profile the key is authorised against. Give each pkt\* app its own profile, scoped by its own instructions, with the app's own documentation as its corpus, and tick that app's key onto that profile alone. Because a key is per-placement, resonance already knows which app is calling without pktLog telling it.
+
+`GET /api/resonance/docs` serves that corpus: every `docs/*.md` file from the running install, each with a SHA-256, behind the existing suite token (or an admin session). It sends an `ETag` and honours `If-None-Match`, so a resonance that polls costs a 304 rather than a re-ingest. Documentation only — no log data, no user data, nothing from the settings table. Pointing resonance at it means upgrading pktLog updates what the assistant knows, instead of leaving a profile quietly describing last year's UI.
+
+### When it does not appear
+
+embed.js logs once to the console and gives up permanently if its script fails to load, which from a user's side is indistinguishable from the feature not existing. pktLog covers the observable half:
+
+- The mount retries a missing script with backoff for about two minutes, which covers a service restart during page load.
+- A script that never arrives is reported to `POST /api/resonance/report`, and Settings → Resonance → Diagnostics shows *"the widget failed to load for N users in the last 7 days."* The usual causes are an ad blocker eating third-party script tags, a wrong server address, or resonance being unreachable.
+- Repeated failures from `/code` open a circuit breaker (`resonance_breaker`). Resonance applies a geometric per-IP backoff to bad-key attempts and pktLog is a single IP, so continuing to knock would take the widget down for everyone and keep the backoff growing. The panel shows the paused state; fixing the key and pressing Test Connection clears it.
+
+A failed *renewal* is not detected. embed.js renews through an endpoint the frontend cannot observe, so there is no signal that distinguishes a dead session from a quiet one, and a timer that assumed the worst would destroy live conversations to fix a rare failure. With a 480-minute session most users never reach a renewal at all.
+
+### Developing without a resonance server
+
+`scripts/resonance_stub.py` is a stand-in for `/embed/session` implementing the documented contract, with the key selecting the branch (`good.`, `disabled.`, `adminport.`, `backoff.`, anything else) so every error path is reachable offline.
+
+```bash
+python3 -m uvicorn scripts.resonance_stub:app --port 9911
+```
+
+Then point **Server address** at `http://127.0.0.1:9911` and use the key `good.secret`.
+
+---
+
 ## Deployment
 
 ### Backend changes

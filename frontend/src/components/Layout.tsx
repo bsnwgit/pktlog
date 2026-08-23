@@ -5,6 +5,8 @@ import { api } from '../api/client'
 import { AutoRefreshProvider, useAutoRefresh } from '../store/autoRefresh'
 import clsx from 'clsx'
 import { BrandLockup } from './Brand'
+import ResonanceMount from '../resonance/ResonanceMount'
+import { getToken } from '../api/client'
 
 // ─── Change Password Modal ────────────────────────────────────────────────────
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
@@ -273,6 +275,9 @@ export default function Layout({ children, chromeless = false }: { children: Rea
         </main>
       </div>
       {showChangePw && <ChangePasswordModal onClose={() => setShowChangePw(false)} />}
+      {/* Same slot the removed AI Assistant occupied: one mount for the whole
+          authenticated app, so route changes do not cost a new session. */}
+      <ResonanceMount getToken={getToken} />
     </div>
     </AutoRefreshProvider>
   )
