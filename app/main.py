@@ -29,6 +29,7 @@ from app.api import widgets as widgets_router
 from app.api import alerts as alerts_router
 from app.api import ws as ws_router
 from app.api import resonance as resonance_router
+from app.api import resonance_data as resonance_data_router
 from app.api import user_api_keys as user_api_keys_router
 from app.api import ip_info as ip_info_router
 from app.api import mxtoolbox as mxtoolbox_router
@@ -186,7 +187,7 @@ async def _direct_access_lock(request: Request, call_next):
     # widget is mounted by the browser on every page, including pages served
     # under pktHub, and a blocked code endpoint reads as a silently broken
     # feature rather than as hub-managed mode doing its job.
-    _ALLOW_PFX = ("/api/health", "/api/suite/", "/api/auth/", "/api/resonance/", "/assets/", "/logos/", "/static/", "/widgets/")
+    _ALLOW_PFX = ("/api/health", "/api/suite/", "/api/auth/", "/api/resonance/", "/.well-known/", "/assets/", "/logos/", "/static/", "/widgets/")
     if any(path == p or path.startswith(p) for p in _ALLOW_PFX):
         return await call_next(request)
     _cfg = get_settings()
@@ -248,6 +249,14 @@ app.include_router(mxtoolbox_router.router,     prefix="/api/mxtoolbox",     tag
 app.include_router(integrations_router.router,  prefix="/api/integrations",  tags=["integrations"])
 app.include_router(docs_router.router,          prefix="/api/docs-content",  tags=["docs"])
 app.include_router(resonance_router.router,      prefix="/api/resonance",     tags=["resonance"])
+
+# The assistant's data surface. Carries its own absolute paths — /api/resonance/data/*
+# plus the two documents at /api/resonance/openapi.json and /.well-known/resonance.json —
+# so it is mounted without a prefix, and last, so validate_grants() sees every
+# operationId the app declares.
+app.include_router(resonance_data_router.router)
+resonance_data_router.register_error_handler(app)
+resonance_data_router.validate_grants(app)
 
 # ── Health check ──────────────────────────────────────────────────────────────
 
