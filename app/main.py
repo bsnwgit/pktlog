@@ -28,6 +28,7 @@ from app.api import suite as suite_router
 from app.api import widgets as widgets_router
 from app.api import alerts as alerts_router
 from app.api import ws as ws_router
+from app.api import resonance as resonance_router
 from app.api import user_api_keys as user_api_keys_router
 from app.api import ip_info as ip_info_router
 from app.api import mxtoolbox as mxtoolbox_router
@@ -181,7 +182,11 @@ async def _direct_access_lock(request: Request, call_next):
     from fastapi.responses import RedirectResponse
     import aiosqlite as _aio
     path = request.url.path
-    _ALLOW_PFX = ("/api/health", "/api/suite/", "/api/auth/", "/assets/", "/logos/", "/static/", "/widgets/")
+    # /api/resonance/ is allowed through for the same reason /api/auth/ is: the
+    # widget is mounted by the browser on every page, including pages served
+    # under pktHub, and a blocked code endpoint reads as a silently broken
+    # feature rather than as hub-managed mode doing its job.
+    _ALLOW_PFX = ("/api/health", "/api/suite/", "/api/auth/", "/api/resonance/", "/assets/", "/logos/", "/static/", "/widgets/")
     if any(path == p or path.startswith(p) for p in _ALLOW_PFX):
         return await call_next(request)
     _cfg = get_settings()
@@ -242,6 +247,7 @@ app.include_router(ip_info_router.router,       prefix="/api/ip-info",       tag
 app.include_router(mxtoolbox_router.router,     prefix="/api/mxtoolbox",     tags=["mxtoolbox"])
 app.include_router(integrations_router.router,  prefix="/api/integrations",  tags=["integrations"])
 app.include_router(docs_router.router,          prefix="/api/docs-content",  tags=["docs"])
+app.include_router(resonance_router.router,      prefix="/api/resonance",     tags=["resonance"])
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

@@ -143,9 +143,21 @@ class Settings(BaseSettings):
     credential_key: str = Field(default=_yaml_cfg.get("credential_key", ""))
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    # In production, set this to your actual origin (e.g. http://192.0.2.10:8768)
+    # Empty by default: the SPA is served from the same origin as the API, and
+    # the Vite dev server proxies /api server-side, so neither needs CORS at all.
+    #
+    # The previous default was ["*"], which combined with allow_credentials=True
+    # makes Starlette echo whichever origin asked rather than send "*" — i.e.
+    # every site was an allowed credentialed origin. That was inert while every
+    # authenticated route required a Bearer token held only by this app's own
+    # page, but /api/resonance/code authenticates by cookie, and a cookie the
+    # browser attaches automatically should not have a permissive CORS policy
+    # standing behind it.
+    #
+    # Set this to an explicit origin list (e.g. ["https://pktlog.example.com"])
+    # only if something genuinely cross-origin needs to call the API.
     cors_origins: list[str] = Field(
-        default=_yaml_cfg.get("cors_origins", ["*"])
+        default=_yaml_cfg.get("cors_origins", [])
     )
 
     # ── pktSuite integration ─────────────────────────────────────────────────

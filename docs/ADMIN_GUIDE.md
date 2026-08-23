@@ -61,6 +61,7 @@ A section bar at the top of the page splits Settings into **Common** — the tab
 | | Data → Storage | Storage backend settings |
 | | Data → Backups | Schedule, retention, manual trigger, restore |
 | | Notifications | Slack, Email (SMTP), PagerDuty, generic Webhook, TraceCat SOAR — six channels total |
+| | Resonance | Embedded assistant — server address, key, who may use it, placement (admin-only) |
 | | User Keys | Per-user IP-lookup provider keys (ipinfo.io, ipapi.is, AbuseIPDB, MXToolbox, IPQualityScore — IPQualityScore can be saved/tested but isn't consumed by the lookup endpoint yet) |
 | | System | Version/build info, host and runtime details, open-source notices |
 | **pktLog** | Collectors | Registered syslog sources — the ingest allowlist |
@@ -92,6 +93,30 @@ Configure schedule, rotation, and path at Data → Backups (or trigger immediate
 Settings → Security → Suite Integration → copy the token, register in pktHub's App Manager. pktHub can then proxy pktLog with users already signed in, and can remotely lock this app's Settings page (shows a "remotely managed" banner here) or force all direct browser access into a redirect (`POST /api/suite/direct-access`). That lock auto-clears if pktHub goes unreachable for more than 5 minutes or is down at this app's startup, so a lock can't permanently strand admins out.
 
 There's also an **outbound** Integrations API (`app/api/integrations.py`) for named connections *from* pktLog *to* sibling pkt apps (pktipam/pktflow/pktsnmp/pktpcap/pktwifi/pkthub) — backend/DB only as of this writing, no consumer feature reads from it yet.
+
+## Resonance (embedded assistant)
+
+Settings → Resonance. Adds an assistant launcher to the bottom corner of every page, in the same place the old in-app AI Assistant used to sit. The assistant itself runs on the resonance server; pktLog only decides who may open it.
+
+**Setting it up.** Paste the **interface server** address — not resonance's admin portal, which answers on a different address and serves `embed.js` too, so it looks right until the session call returns "not found" — and the key you were issued, tick which roles may use it, press **Test Connection**, then switch **Enabled** on. Test Connection works whether or not the feature is enabled — you should always prove a key before putting the widget in front of users.
+
+Two things have to line up on the resonance side, and both cause silent failures if they don't:
+
+- **This install's origin must be on the key.** The exact text to copy is shown under Diagnostics. If it isn't listed, the launcher appears and the panel stays blank.
+- **The key's session length should be 480 minutes**, matching pktLog's own session timeout. The panel warns if they differ.
+
+Turn on **Speakers Name** on the key too. Without it resonance records nothing — no trace of who asked what.
+
+**What a successful test tells you.** Test Connection reads back what the key actually permits — ask, microphone, speech, the rate limits, and the session length — so you can see, for example, that voice is switched off on this key rather than wondering why the button never appears.
+
+**Requirements that are easy to miss.**
+
+- Resonance must be reachable **from the browser**, over HTTPS, with a certificate the browser already trusts. A self-signed certificate gives an empty widget and nothing in the console to explain it.
+- Voice needs pktLog itself on HTTPS. Over plain HTTP the microphone cannot work at all, so pktLog hides it rather than showing a dead button. Text chat is unaffected.
+
+**What the assistant will and won't answer** is configured on the resonance side, by the profile the key is authorised against — not on this page. This page controls who may open it, not what it may discuss. Resonance can be pointed at `GET /api/resonance/docs` to keep its knowledge of pktLog in step with the installed version.
+
+**If it doesn't appear.** Diagnostics reports how many users could not load the widget in the last week; the usual causes are an ad blocker, a wrong server address, or resonance being unreachable. Repeated failures pause the integration for a few minutes rather than hammering resonance — the panel says so when that happens, and a successful Test Connection clears it.
 
 ## Alert engine
 
