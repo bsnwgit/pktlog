@@ -98,6 +98,12 @@ DEFAULTS: dict[str, Any] = {
     # right for a direct install and wrong behind a reverse proxy: the app then
     # sees the internal scheme, host and port, not the address users type.
     "resonance_origin": "",
+    # CA bundle for the server-to-server call to resonance. Blank uses httpx's
+    # bundled certifi roots, which do NOT include anything an internal CA signed
+    # — a certificate every browser trusts is still untrusted here. Point this at
+    # the system store (/etc/ssl/certs/ca-certificates.crt on Debian/Ubuntu) when
+    # resonance uses an internal CA.
+    "resonance_ca_bundle": "",
     "resonance_key": "",              # <eid>.<secret> — encrypted at rest, masked in responses
     "resonance_roles": ["admin", "analyst", "viewer"],   # local roles allowed to load the widget
     "resonance_style": "bubble",      # bubble | inline

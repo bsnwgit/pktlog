@@ -1254,7 +1254,7 @@ export default function Settings() {
   const lucidSave = useSave(['lucid_api_token'], settings, load)
   const resonanceSave = useSave([
     'resonance_enabled', 'resonance_base_url', 'resonance_key', 'resonance_roles',
-    'resonance_origin',
+    'resonance_origin', 'resonance_ca_bundle',
     'resonance_style', 'resonance_target', 'resonance_label', 'resonance_side',
     'resonance_width', 'resonance_height', 'resonance_open', 'resonance_exclude_paths',
   ], settings, load)
@@ -1990,6 +1990,7 @@ export default function Settings() {
               <p><span className="text-gray-300 font-medium">pktLog never sends your login credentials.</span> It vouches for whoever is signed in and receives a short-lived, single-use code the browser spends on opening the widget. The key below never reaches the browser.</p>
               <p><span className="text-amber-500 font-medium">What the assistant will answer is configured in resonance, not here.</span> Scope is set by the profile the key is authorised against — this page controls who may open it, not what it may discuss.</p>
               <p>Resonance must be reachable from the <span className="text-gray-300 font-medium">browser</span>, over HTTPS, with a certificate those browsers already trust. An untrusted certificate produces an empty widget with nothing in the console to explain it.</p>
+              <p><span className="text-gray-300 font-medium">pktLog also calls resonance directly</span>, server to server, so this host must be able to resolve resonance&rsquo;s name and trust its certificate — the browser doing both is not enough. Python verifies against its own bundled roots rather than the system store, so a certificate signed by an internal CA is trusted by every browser on the network and still rejected here. <span className="text-gray-300 font-medium">CA bundle</span> points it at the system store instead; on Debian and Ubuntu that is <code>/etc/ssl/certs/ca-certificates.crt</code>.</p>
             </>,
           }}
         >
@@ -2004,6 +2005,9 @@ export default function Settings() {
           </Field>
           <Field label="pktLog's own address" hint="What browsers type to reach pktLog. Copy it onto the resonance key.">
             <ResonanceOriginField value={str('resonance_origin')} onChange={v => set('resonance_origin', v)} />
+          </Field>
+          <Field label="CA bundle" hint="Only needed if resonance uses an internal CA. Blank trusts public CAs only.">
+            <TextInput value={str('resonance_ca_bundle')} onChange={v => set('resonance_ca_bundle', v)} placeholder="/etc/ssl/certs/ca-certificates.crt" mono />
           </Field>
           <Field label="Who can use it" hint="Roles permitted to load the widget. Everyone else gets no launcher at all.">
             <div className="flex items-center gap-4">
