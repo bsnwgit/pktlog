@@ -103,7 +103,8 @@ async def _client(db: aiosqlite.Connection, base_url: str = "", key: str = "") -
         base_url = await _get(db, "resonance_base_url", "") or ""
     if not key:
         key = await read_secret(db, "resonance_key")
-    return ResonanceClient(base_url, key)
+    ca_bundle = await _get(db, "resonance_ca_bundle", "") or ""
+    return ResonanceClient(base_url, key, ca_bundle=ca_bundle)
 
 
 # ── Request-origin checks for the cookie route ────────────────────────────────

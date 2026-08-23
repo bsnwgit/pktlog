@@ -6,11 +6,13 @@ who is asking, and get back a short-lived single-use code the browser can spend
 on /embed?c=<code>. The key never leaves the server; resonance never sees the
 app's own credentials.
 
-TLS verification is on and not configurable. A browser-trusted certificate is a
-documented prerequisite for resonance — embed.js is loaded by the browser, and
-there is no verify=False for browsers. Verifying here too means a certificate
-problem surfaces as a clear error in Test Connection rather than working
-server-side and failing silently for every user with a blank frame.
+TLS verification is always on — there is no verify=False for browsers loading
+embed.js, so switching it off here would only hide a problem every user is about
+to hit as a blank frame. What is configurable is which roots to trust, because
+httpx verifies against its bundled certifi roots rather than the operating
+system store: a certificate signed by an internal CA is trusted by every browser
+on the network and still rejected here. Pass ca_bundle to use the system store
+instead.
 """
 from __future__ import annotations
 
@@ -53,10 +55,12 @@ def _clean_roles(roles: list[str] | None) -> list[str]:
 
 
 class ResonanceClient:
-    def __init__(self, base_url: str, key: str, *, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(self, base_url: str, key: str, *, timeout: float = DEFAULT_TIMEOUT,
+                 ca_bundle: str = ""):
         self.base_url = (base_url or "").rstrip("/")
         self.key = (key or "").strip()
         self.timeout = timeout
+        self.ca_bundle = (ca_bundle or "").strip()
 
     @property
     def configured(self) -> bool:
@@ -80,20 +84,36 @@ class ResonanceClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            verify = self.ca_bundle or True
+            async with httpx.AsyncClient(timeout=self.timeout, verify=verify) as client:
                 resp = await client.post(f"{self.base_url}/embed/session", json=payload)
         except httpx.TimeoutException as exc:
             raise ResonanceUnreachable(f"timed out after {self.timeout}s") from exc
         except httpx.ConnectError as exc:
-            # Certificate failures land here too, and are the likeliest cause on
-            # a first install — say so rather than reporting a bare connect error.
-            raise ResonanceUnreachable(
-                f"{exc}",
-                admin_message=(
-                    "Could not reach the resonance server — check the address, "
-                    "and that its certificate is trusted by this host."
-                ),
-            ) from exc
+            # httpx folds name resolution, refused connections and certificate
+            # failures into one exception type. They have completely different
+            # fixes, and the DNS one is easy to miss because the browser resolves
+            # names this host cannot — an internal domain plus a public resolver
+            # on the server makes every key look wrong.
+            text = str(exc).lower()
+            if "name or service not known" in text or "nodename nor servname" in text \
+                    or "temporary failure in name resolution" in text or "getaddrinfo" in text:
+                admin_message = (
+                    "Could not resolve the resonance server's name from this host. "
+                    "The browser resolving it is not enough — this app calls resonance "
+                    "directly. Check this server's DNS, or add a hosts entry."
+                )
+            elif "certificate" in text or "ssl" in text or "tls" in text:
+                admin_message = (
+                    "Reached the resonance server, but its certificate was not trusted "
+                    "by this host."
+                )
+            else:
+                admin_message = (
+                    "Could not reach the resonance server — the address resolves, but "
+                    "nothing accepted a connection there."
+                )
+            raise ResonanceUnreachable(f"{exc}", admin_message=admin_message) from exc
         except httpx.HTTPError as exc:
             raise ResonanceUnreachable(str(exc)) from exc
 
