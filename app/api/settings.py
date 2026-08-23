@@ -105,7 +105,13 @@ DEFAULTS: dict[str, Any] = {
     # resonance uses an internal CA.
     "resonance_ca_bundle": "",
     "resonance_key": "",              # <eid>.<secret> — encrypted at rest, masked in responses
-    "resonance_roles": ["admin", "analyst", "viewer"],   # local roles allowed to load the widget
+    # What each local role may do with the assistant: "none" (no launcher at
+    # all), "read" (open it, and let it read this install through the operations
+    # in /.well-known/resonance.json), or "write" (also let it call the ones
+    # that change something). A write level never exceeds the role's own rights
+    # in pktLog — an analyst set to "write" can acknowledge an alert because the
+    # endpoint allows analysts, and still cannot toggle a rule, because it does not.
+    "resonance_role_levels": {"admin": "read", "analyst": "read", "viewer": "read"},
     "resonance_style": "bubble",      # bubble | inline
     "resonance_target": "",           # required when style is inline: id of an existing element
     "resonance_label": "",

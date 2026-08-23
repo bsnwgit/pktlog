@@ -92,9 +92,28 @@ async def _embed_config(db: aiosqlite.Connection) -> dict:
     }
 
 
+# What a role may do with the assistant. Ordered, so a comparison of rank is a
+# comparison of permission: "write" implies "read", "none" implies nothing.
+LEVEL_RANK = {"none": 0, "read": 1, "write": 2}
+
+
+async def _role_levels(db: aiosqlite.Connection) -> dict[str, str]:
+    stored = await _get(db, "resonance_role_levels", {}) or {}
+    if not isinstance(stored, dict):
+        return {}
+    return {str(role): str(level) for role, level in stored.items()}
+
+
+async def role_level(db: aiosqlite.Connection, role: str) -> str:
+    """This role's assistant level, defaulting closed for anything unrecognised."""
+    level = (await _role_levels(db)).get(role, "none")
+    return level if level in LEVEL_RANK else "none"
+
+
 async def _allowed_roles(db: aiosqlite.Connection) -> list[str]:
-    roles = await _get(db, "resonance_roles", []) or []
-    return [str(r) for r in roles]
+    """Roles that may open the assistant at all — level above "none"."""
+    return [role for role, level in (await _role_levels(db)).items()
+            if LEVEL_RANK.get(level, 0) > 0]
 
 
 async def _client(db: aiosqlite.Connection, base_url: str = "", key: str = "") -> ResonanceClient:
@@ -178,7 +197,11 @@ async def _user_for_code(request: Request, db: aiosqlite.Connection) -> dict | N
     settings = get_settings()
     suite_token = request.headers.get("x-suite-token", "")
     if suite_token and settings.suite_token and _secrets.compare_digest(suite_token, settings.suite_token):
+        # id 0 matches what get_current_user returns for a hub-proxied caller:
+        # there is no local row for them, and anything recording who acted
+        # stores that same synthetic id from either entry point.
         return {
+            "id": 0,
             "username": request.headers.get("x-suite-user", "hub_user"),
             "role": request.headers.get("x-suite-role", "viewer"),
         }
@@ -196,7 +219,7 @@ async def _user_for_code(request: Request, db: aiosqlite.Connection) -> dict | N
         row = await cur.fetchone()
     if not row or not row["is_active"]:
         return None
-    return {"username": row["username"], "role": row["role"]}
+    return {"id": user_id, "username": row["username"], "role": row["role"]}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

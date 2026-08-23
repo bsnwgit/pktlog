@@ -452,6 +452,178 @@ Scope is enforced by the profile the key is authorised against. Give each pkt\* 
 
 `GET /api/resonance/docs` serves that corpus: every `docs/*.md` file from the running install, each with a SHA-256, behind the existing suite token (or an admin session). It sends an `ETag` and honours `If-None-Match`, so a resonance that polls costs a 304 rather than a re-ingest. Documentation only — no log data, no user data, nothing from the settings table. Pointing resonance at it means upgrading pktLog updates what the assistant knows, instead of leaving a profile quietly describing last year's UI.
 
+### Letting the assistant read pktLog's data
+
+Mounting the panel only lets someone talk to it. Answering *"which collector went
+quiet overnight"* needs the assistant to read this install, and that is a separate
+contract with three parts, all served by `app/api/resonance_data.py`.
+
+**1. An OpenAPI document** at `/api/resonance/openapi.json`. Generated from the live
+routes and then narrowed to the granted operations, rather than written by hand — a
+hand-kept spec ends in the assistant confidently sending a field that stopped
+existing. It is narrowed because every operation's prose competes with every other
+operation's prose, and publishing all eighty of pktLog's routes is eighty chances to
+pick the wrong one.
+
+**2. A grant file** at `/.well-known/resonance.json`, generated from the `GRANTED`
+tuple in the same module. Nothing is reachable unless it is named there; publishing
+a spec grants nothing on its own. Eight read operations are granted today:
+
+| operationId | Answers |
+|---|---|
+| `searchSyslog` | The collected log lines themselves, filtered and paged |
+| `getSyslogSummary` | Severity counts, busiest hosts and programs, which collectors have gone quiet |
+| `getSyslogTimeline` | Event volume over time, already bucketed |
+| `listCollectors` | The registry — and the org / log group / site vocabulary this install actually uses |
+| `listAlertEvents` | Alerts that have fired, acknowledged or not |
+| `listAlertRules` | What is being watched for, and whether it is switched on |
+| `listPendingCollectors` | Senders being dropped because they are not registered yet (admin) |
+| `searchApplicationLog` | pktLog's own diagnostics — why ingest stopped, what failed at 03:00 |
+
+**3. Endpoints that behave.** Every operation is bounded: a page plus a real total,
+`limit` with a default and a hard maximum, and enums on every fixed vocabulary so the
+assistant asks for `severity_at_least=error` rather than guessing `severity=high` and
+collecting a 422. The install-specific vocabulary — collector names, orgs, log groups,
+sites — cannot be an enum in a spec that ships with the code, so `listCollectors`
+publishes it instead and every affected parameter description says so.
+
+#### Levels, and the two gates a write has to pass
+
+`resonance_role_levels` sets **none / read / write** per local role, replacing the flat
+`resonance_roles` list. The migration in `app/database.py` turns every role that was on
+the old list into `read` and everything else into `none` — deliberately nobody is
+migrated to `write`, because there were no write operations when that list was ticked,
+so nothing on it was ever consent to let the assistant change something.
+
+A write has to pass two gates that answer different questions:
+
+1. **The admin's** — is this role set to `write` at all (`resonance_write_user`).
+2. **pktLog's own** — may this person do this thing anyway. `require_admin` and
+   `require_analyst` are *imported and called*, not restated, so a change to who may do
+   something in the interface reaches the assistant in the same commit.
+
+The effect is that a level never grants a right its holder does not already have. An
+analyst on `write` can acknowledge an alert, because the ack endpoint allows analysts;
+the same analyst gets a 403 on `toggleAlertRule`, because that endpoint is admin-only.
+
+| operationId | Changes | Role, as in the UI |
+|---|---|---|
+| `ackAlertEvent` | Marks one alert seen. Resolves nothing | analyst+ |
+| `ackAllAlertEvents` | Marks every outstanding alert seen | analyst+ |
+| `toggleAlertRule` | Switches an existing rule on or off | admin |
+| `approveCollector` | Admits a waiting sender; its data starts being stored | admin |
+| `ignoreCollector` | Hides a waiting sender. Not a block, and reversible | admin |
+
+**What is absent is as much of the design as what is present:** no delete of a rule, a
+collector or a pending sender, no clearing of logs, and no creating or editing of
+configuration. The assistant can act on what an administrator already put there and
+cannot author or destroy it.
+
+Each of these carries `writes: true`, so resonance stops and reads the real values back
+to the person before running it. That confirmation happens at their end and cannot be
+relied on here, which is why both gates still apply on the request itself. Every write
+also logs who did what.
+
+**Where no role is set to `write`, the write operations are withheld from the published
+grant and from the spec entirely** — not advertised and then refused. An install that
+has trusted nobody with writes publishes a document that cannot be read as offering
+them, and there is nothing at the resonance end to tick.
+
+`getSyslogTimeline` refuses a window that would produce more intervals than
+`point_limit` rather than truncating it, and `getSyslogSummary` caps its collector
+list while reporting the true `collector_total`. An unbounded read is the one way a
+read-only surface can still take an install down, and a silently truncated answer
+reads as a complete one.
+
+#### The two ceilings, and why they are enforced here
+
+Resonance truncates any result over **20 KB** and tells the model it did, and treats a
+call unanswered after **20 seconds**. Both are enforced on this side instead, because
+what arrives at the far end when they are not is JSON that stops mid-record, and
+silence.
+
+Neither was theoretical. Measured against the live appliance — 14.9 million rows, ~537
+bytes per event — a default page of 50 events was **26.8 KB**, so every search would
+have been mangled on arrival, and a 720-hour timeline at 90-minute buckets was 25 KB.
+
+- `_fit()` prices the envelope, packs items until the budget is spent, and sets
+  `truncated_for_size` with a `returned` count. `total` is never touched, so the model
+  is told there is more and can narrow or page rather than believing it saw everything.
+  It always keeps at least one item — an empty page for one oversized record is a worse
+  answer than an oversized one.
+- Page defaults are set from that measurement: 25 events is ~13 KB and needs no
+  trimming, which is where a default belongs. The maxima sit deliberately above what
+  always fits, because the trim reports itself and a caller that wants density should
+  be able to ask.
+- A traceback in `searchApplicationLog` keeps its **tail** — a Python traceback puts the
+  exception last, and one 8 KB frame dump would otherwise consume a whole page.
+- `_in_time()` bounds the store queries at 15 seconds and answers 504 with the filters
+  worth adding. Queries on the live appliance run in well under a second, so this is a
+  guard for a larger install or a cold store, not a routine path.
+
+Only a **local** `$ref` into the same document is resolved at the far end, so the spec
+carries no external references; `scripts/resonance_contract_check.py` fails if one
+appears.
+
+#### Why these are separate routes from the ones the UI calls
+
+`/api/syslog/search` and friends were written for a SPA that already knows the
+vocabulary: several return a bare array, one caps at 500 rows with no way to ask for
+fewer, and their parameters are typed but not described. Retrofitting the contract
+onto them would change response shapes the frontend already consumes. The resonance
+operations wrap the same storage calls and the same tables — `build_summary()` in
+`app/api/syslog.py` is shared outright — so there is no second implementation of any
+query, only a second and narrower doorway with the labels a model needs.
+
+#### Authentication — no new credential, and no bearer-token handler needed
+
+The calls are ordinary same-origin fetches made by pktLog's own page, carrying the
+refresh cookie, and they are admitted by the same helpers that admit
+`/api/resonance/code`: same-origin checked before any cookie is honoured, session
+validated, feature switched on, role on the admin's list. The last two mean the whole
+surface answers 404 on an install that never enabled the panel.
+
+That also settles the one exception in the resonance contract. pktLog's *access*
+token lives in memory, which would normally mean supplying a fetch handler on the page
+for the loader to call — but the refresh cookie is a real session credential the
+browser attaches by itself, and this surface accepts it, so the default cookie path
+applies and no page-side handler is required.
+
+Errors come back as `{"error": "..."}` with a message written to be read aloud;
+the rest of the app keeps FastAPI's `{"detail": ...}`, which its own frontend reads.
+
+Both documents are readable without a login, as this app's own `/openapi.json`
+already is — they contain names, not data — and both are exempted from hub-managed
+mode's redirect for the same reason `/api/resonance/` already is.
+
+#### Drift, and seeing what the assistant did
+
+A grant naming a route that has since been renamed is this arrangement's quiet
+failure: the panel asks, gets a 404, and reports pktLog as having no such capability
+rather than as misconfigured. `validate_grants()` runs at import, after every router
+is mounted, and logs an error naming any operationId the app does not declare; those
+names are withheld from the published grant rather than advertised and broken.
+
+Every call is logged at INFO, so it lands in the Logs page as well as the journal:
+
+```
+resonance grant fetched: 8 operation(s), 0 writing
+resonance call: alice (admin) -> searchSyslog
+resonance: alice acknowledged alert event 412
+```
+
+This is an audit trail first — an assistant reading a logging product's data should
+leave one — but it is also the only way to tell "the panel never called us" from "the
+panel called and got what it wanted". uvicorn runs with `access_log=False` and a
+successful read is otherwise silent, which is exactly the distinction needed the moment
+an answer looks wrong. It earned itself immediately: a `resonance call: … ->
+searchSyslog` line with no failure beneath it was what showed the `pid` fault was ours
+and not the panel's.
+
+Diagnosing from the other direction is worth remembering too. Where resonance forwards
+its own syslog to pktLog — which it does on the reference install — the reason the panel
+gives up is in the Explorer, filtered to program `resonance` around the failing minute.
+
 ### When it does not appear
 
 embed.js logs once to the console and gives up permanently if its script fails to load, which from a user's side is indistinguishable from the feature not existing. pktLog covers the observable half:
@@ -471,6 +643,42 @@ python3 -m uvicorn scripts.resonance_stub:app --port 9911
 ```
 
 Then point **Server address** at `http://127.0.0.1:9911` and use the key `good.secret`.
+
+`scripts/resonance_contract_check.py` checks the data half against a running server,
+reading only the two public documents so it needs no credential and touches no data:
+
+```bash
+python3 scripts/resonance_contract_check.py http://127.0.0.1:8768
+```
+
+It fails on the things that look fine in a diff and only break in a conversation — a
+parameter nobody described, a fixed vocabulary published without its enum, a list
+operation with no ceiling, a grant naming an operation the spec does not carry. It is
+not pktLog-specific: point it at any pkt\* app that publishes a grant file.
+
+That checker asks whether the published document is *well formed*.
+`scripts/resonance_schema_check.py` asks whether it is *true* — it runs on the install,
+against that install's own store, and validates each operation's real output against the
+model it declares:
+
+```bash
+venv/bin/python scripts/resonance_schema_check.py
+```
+
+Both are needed, because they catch different failures. A spec can be immaculate — every
+enum, every limit, every description — and still declare a field as an integer that the
+store holds as a string. `pid` is exactly that: a `String` in ClickHouse and a `VARCHAR`
+in DuckDB, empty rather than null when a line carries no process id. Declared as `int`,
+every search failed response validation on its first record, and because that happens
+after the route body returns, the module's own `try/except` never saw it and uvicorn
+logged it somewhere the SQLite handler is not attached to — a 500 in the panel and not
+one line on the server. Shapes differ by backend, so a pass on ClickHouse is not a pass
+on DuckDB, which is why this one runs locally rather than over HTTP.
+
+The `ResponseValidationError` handler in `register_error_handler` now names the offending
+fields in the log and returns a JSON error saying the fault is pktLog's. It is scoped to
+`/api/resonance/` paths and re-raises anything else, so every other `response_model` in
+the app keeps FastAPI's existing behaviour.
 
 ---
 

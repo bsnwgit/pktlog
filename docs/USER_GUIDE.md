@@ -44,9 +44,15 @@ For longer-form documentation, click **Documentation** in the sidebar (just abov
 
 If your administrator has set it up, a launcher sits in the bottom corner of every page. Click it to ask questions in a chat panel. The panel is provided by the resonance server, so what it can help with depends on how your administrator configured it there.
 
-It knows who you are — your login is passed along so your conversation is attributed to you — but it does **not** see the page you are on or the search you just ran. Include the detail you want it to work with in your question.
+It can look things up in pktLog for you — search the collected logs, summarise what has been arriving, tell you which collectors have gone quiet, list alerts that have fired and the rules behind them, and read pktLog's own diagnostic log. Administrators can also ask it about devices waiting for approval. It looks with **your** access, so it can only reach what you could open yourself.
 
-If the launcher never appears, either your role is not on the permitted list or the assistant could not load. Your administrator can see both under Settings → Resonance.
+Depending on what your administrator has allowed for your role, it may also be able to **act**: acknowledge an alert, acknowledge all of them, switch an alert rule on or off, or admit a device waiting for approval. It will always tell you exactly what it is about to do and wait for you to say yes. It can never delete anything, clear any logs, or create or edit configuration — and it can never do something your own account could not. If it says it is not allowed to make a change, that is your role's setting, and your administrator can see it under Settings → Resonance.
+
+Long answers come back shortened on purpose. Ask something that matches forty thousand log lines and it will tell you the count and show you the first few, rather than reading the table out — narrow the question by time, collector or severity to get closer.
+
+It knows who you are — your login is passed along so your conversation is attributed to you — but it does **not** see the page you are on or the search you just ran. Include the detail you want it to work with in your question, and say the collector or site by the name it has in pktLog.
+
+If the launcher never appears, either your role is set to *No access* or the assistant could not load. Your administrator can see both under Settings → Resonance.
 
 Voice, where the key allows it, requires pktLog to be served over HTTPS. On a plain HTTP install the microphone is hidden rather than shown as a button that cannot work.
 
