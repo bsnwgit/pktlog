@@ -98,7 +98,7 @@ There's also an **outbound** Integrations API (`app/api/integrations.py`) for na
 
 Settings → Resonance. Adds an assistant launcher to the bottom corner of every page, in the same place the old in-app AI Assistant used to sit. The assistant itself runs on the resonance server; pktLog only decides who may open it.
 
-**Setting it up.** Paste the server address and the key you were issued, tick which roles may use it, press **Test Connection**, then switch **Enabled** on. Test Connection works whether or not the feature is enabled — you should always prove a key before putting the widget in front of users.
+**Setting it up.** Paste the **interface server** address — not resonance's admin portal, which answers on a different address and serves `embed.js` too, so it looks right until the session call returns "not found" — and the key you were issued, tick which roles may use it, press **Test Connection**, then switch **Enabled** on. Test Connection works whether or not the feature is enabled — you should always prove a key before putting the widget in front of users.
 
 Two things have to line up on the resonance side, and both cause silent failures if they don't:
 
