@@ -1988,6 +1988,7 @@ export default function Settings() {
               <p><span className="text-gray-300 font-medium">Resonance AI Interface Server</span> is the interface resonance serves embeds from — <span className="text-amber-500 font-medium">not its admin portal</span>, which usually answers on a different address and will look almost right: it serves <code>embed.js</code> too, and only fails later with a &ldquo;not found&rdquo; on the session call. Whatever is typed into SETTINGS → ENROLL → Enroll Embed Server on resonance goes here character for character, because <code>embed.js</code> derives its own origin from that string. Leave the port off if it sits behind a reverse proxy.</p>
               <p><span className="text-gray-300 font-medium">pktLog&rsquo;s own address</span> is what a browser types to reach this app, and it is the string that has to appear on the resonance key&rsquo;s origins list. Leave it blank and pktLog works it out from the request — correct for a direct install, and wrong behind a reverse proxy, where it sees the internal address rather than the one users type.</p>
               <p><span className="text-gray-300 font-medium">pktLog never sends your login credentials.</span> It vouches for whoever is signed in and receives a short-lived, single-use code the browser spends on opening the widget. The key below never reaches the browser.</p>
+              <p><span className="text-gray-300 font-medium">The panel&rsquo;s insides belong to resonance.</span> It is an iframe served from resonance&rsquo;s own origin, so pktLog cannot restyle it or move its controls — where the buttons sit is a resonance change. What pktLog can do is make the panel bigger, with <span className="text-gray-300 font-medium">Panel size</span>, which is usually what &ldquo;more room to read&rdquo; actually needs.</p>
               <p><span className="text-amber-500 font-medium">What the assistant will answer is configured in resonance, not here.</span> Scope is set by the profile the key is authorised against — this page controls who may open it, not what it may discuss.</p>
               <p>Resonance must be reachable from the <span className="text-gray-300 font-medium">browser</span>, over HTTPS, with a certificate those browsers already trust. An untrusted certificate produces an empty widget with nothing in the console to explain it.</p>
               <p><span className="text-gray-300 font-medium">pktLog also calls resonance directly</span>, server to server, so this host must be able to resolve resonance&rsquo;s name and trust its certificate — the browser doing both is not enough. Python verifies against its own bundled roots rather than the system store, so a certificate signed by an internal CA is trusted by every browser on the network and still rejected here. <span className="text-gray-300 font-medium">CA bundle</span> points it at the system store instead; on Debian and Ubuntu that is <code>/etc/ssl/certs/ca-certificates.crt</code>.</p>
@@ -2045,6 +2046,13 @@ export default function Settings() {
           </Field>
           <Field label="Label" hint="Optional text on the launcher.">
             <TextInput value={str('resonance_label')} onChange={v => set('resonance_label', v)} />
+          </Field>
+          <Field label="Panel size" hint="Width and height of the open panel. Blank uses resonance's defaults.">
+            <div className="flex items-center gap-2">
+              <TextInput value={str('resonance_width')} onChange={v => set('resonance_width', v)} placeholder="420" mono />
+              <span className="text-xs text-gray-500">&times;</span>
+              <TextInput value={str('resonance_height')} onChange={v => set('resonance_height', v)} placeholder="640" mono />
+            </div>
           </Field>
           <Field label="Open on load" hint="Show the panel expanded rather than waiting for a click.">
             <Toggle value={bool('resonance_open')} onChange={v => set('resonance_open', v)} />
