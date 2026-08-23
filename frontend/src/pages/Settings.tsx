@@ -1995,13 +1995,13 @@ export default function Settings() {
           <Field label="Enabled" hint="Deliberately separate from Test Connection — testing a key must never put a widget in front of users.">
             <Toggle value={bool('resonance_enabled')} onChange={v => set('resonance_enabled', v)} />
           </Field>
-          <Field label="Server address" hint="Scheme, host and port, matching the address enrolled on the resonance side exactly. Leave the port off when it sits behind a reverse proxy.">
+          <Field label="Resonance server address" hint="Where the resonance server itself lives — embed.js is loaded from here. Must match what is typed into SETTINGS → ENROLL → Enroll Embed Server on resonance, character for character, because embed.js derives its own origin from that string. Leave the port off if resonance sits behind a reverse proxy. This is not pktLog's own address.">
             <TextInput value={str('resonance_base_url')} onChange={v => set('resonance_base_url', v)} placeholder="https://resonance.example.com" mono />
           </Field>
           <Field label="Key" hint="One key per placement. Stored encrypted; never sent to the browser.">
             <TextInput value={str('resonance_key')} onChange={v => set('resonance_key', v)} placeholder="e0000000000.…" secret mono />
           </Field>
-          <Field label="This install's origin" hint="The address a browser uses to reach pktLog. This exact string must be listed on the resonance key, or the panel stays blank. Not the resonance server address — that is the field above.">
+          <Field label="pktLog's own address" hint="The address a browser uses to reach pktLog. Copy it onto the resonance key's origins list, or the panel stays blank. Leave blank to detect it — see below.">
             <ResonanceOriginField value={str('resonance_origin')} onChange={v => set('resonance_origin', v)} />
           </Field>
           <Field label="Who can use it" hint="Roles permitted to load the widget. Everyone else gets no launcher at all.">
