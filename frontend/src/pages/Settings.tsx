@@ -280,6 +280,38 @@ function Section({
   )
 }
 
+// ── Resonance origin ──────────────────────────────────────────────────────────
+// The one string that has to be copied onto the resonance key, so it is edited
+// and copied in the same place. Showing it twice — once editable in the form and
+// once read-only beside a Copy button — reliably sends people to the copy.
+function ResonanceOriginField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [detected, setDetected] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => { api.resonanceStatus().then(r => setDetected(r.detected_origin || '')).catch(() => {}) }, [])
+
+  const effective = value.trim() || detected
+
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <TextInput value={value} onChange={onChange} placeholder={detected || 'https://pktlog.example.com'} mono />
+        <button
+          type="button"
+          onClick={() => { navigator.clipboard?.writeText(effective); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap px-2"
+        >{copied ? 'Copied' : 'Copy'}</button>
+      </div>
+      {!value.trim() && detected && (
+        <p className="text-xs text-gray-500 mt-1">
+          Blank, so <span className="font-mono">{detected}</span> is being used. Behind a reverse proxy that is
+          usually the internal address rather than the one users type — type the real one here to override it.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Resonance diagnostics ─────────────────────────────────────────────────────
 // Everything here answers a question an admin would otherwise have to open the
 // resonance console to answer: what does this key actually allow, is this
@@ -299,15 +331,13 @@ function ResonanceDiagnostics({ baseUrl, keyValue }: { baseUrl: string; keyValue
     try {
       setResult(await api.resonanceTest(baseUrl, keyValue))
     } catch (e: any) {
-      setResult({ ok: false, error: e.message || 'Test failed', origin: status?.origin || '' })
+      setResult({ ok: false, error: e.message || 'Test failed', origin: '' })
     } finally {
       setTesting(false)
       loadStatus()
     }
   }
 
-  const origin = result?.origin || status?.origin || ''
-  const detected = result?.detected_origin || status?.detected_origin || ''
   const cap = (result?.cap || {}) as Record<string, unknown>
   const failures = status?.load_failures
 
@@ -326,29 +356,7 @@ function ResonanceDiagnostics({ baseUrl, keyValue }: { baseUrl: string; keyValue
           </p>
         )}
 
-        <div>
-          <p className="text-xs text-white mb-1">
-            Origin to list on the resonance key — the widget stays blank on any origin that is not listed.
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white font-mono">{origin || '—'}</code>
-            <button
-              type="button"
-              onClick={() => { navigator.clipboard?.writeText(origin); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-              className="text-xs text-blue-400 hover:text-blue-300"
-            >{copied ? 'Copied' : 'Copy'}</button>
-          </div>
-          {detected && detected !== origin ? (
-            <p className="text-xs text-gray-500 mt-1">
-              Set manually. Auto-detection saw <span className="font-mono">{detected}</span> — the internal address, if a proxy sits in front.
-            </p>
-          ) : (
-            <p className="text-xs text-gray-500 mt-1">
-              Auto-detected. If a reverse proxy terminates TLS in front of pktLog this will be the internal
-              address rather than the one users type — set it explicitly above.
-            </p>
-          )}
-        </div>
+
 
         <div className="flex items-center gap-3">
           <button
@@ -1993,8 +2001,8 @@ export default function Settings() {
           <Field label="Key" hint="One key per placement. Stored encrypted; never sent to the browser.">
             <TextInput value={str('resonance_key')} onChange={v => set('resonance_key', v)} placeholder="e0000000000.…" secret mono />
           </Field>
-          <Field label="This install's origin" hint="The address a browser uses to reach pktLog — this exact string must be listed on the resonance key. Leave blank to detect it automatically. Behind a reverse proxy the detection sees the internal address, not the one users type, so set it here.">
-            <TextInput value={str('resonance_origin')} onChange={v => set('resonance_origin', v)} placeholder="https://pktlog.example.com" mono />
+          <Field label="This install's origin" hint="The address a browser uses to reach pktLog. This exact string must be listed on the resonance key, or the panel stays blank. Not the resonance server address — that is the field above.">
+            <ResonanceOriginField value={str('resonance_origin')} onChange={v => set('resonance_origin', v)} />
           </Field>
           <Field label="Who can use it" hint="Roles permitted to load the widget. Everyone else gets no launcher at all.">
             <div className="flex items-center gap-4">
