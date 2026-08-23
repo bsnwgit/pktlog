@@ -429,6 +429,7 @@ pktLog vouches for whoever is signed in and receives a short-lived, single-use c
 **On the resonance side**
 
 1. Create a key for this pktLog install. One key is one placement.
+1. Note the **interface server** address — the one enrolled under SETTINGS ▸ ENROLL ▸ Enroll Embed Server, which is *not* the admin portal. The admin portal serves `embed.js` as well, so pointing at it looks correct until `/embed/session` answers `404`.
 2. Set its session TTL to **480 minutes**, matching pktLog's own `session_timeout_minutes`. The panel warns when they disagree.
 3. Turn on **Speakers Name** (`needs_user`). Without it resonance records nothing at all — no audit trail for who asked what.
 4. Add this install's **origin** to the key's allow-list. The exact string is shown, ready to copy, under Settings → Resonance → Diagnostics.
@@ -436,7 +437,7 @@ pktLog vouches for whoever is signed in and receives a short-lived, single-use c
 
 **On the pktLog side**
 
-Settings → Resonance: paste the server address and key, choose which roles may use it, press **Test Connection**, then switch **Enabled** on. Test works whether or not the feature is enabled, on purpose — an admin must be able to prove a key before putting a widget in front of users, and to diagnose one after turning it off.
+Settings → Resonance: paste the interface server address and key, choose which roles may use it, press **Test Connection**, then switch **Enabled** on. Test works whether or not the feature is enabled, on purpose — an admin must be able to prove a key before putting a widget in front of users, and to diagnose one after turning it off.
 
 ### Prerequisites
 

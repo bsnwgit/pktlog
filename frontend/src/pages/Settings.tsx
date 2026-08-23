@@ -1985,7 +1985,7 @@ export default function Settings() {
             title: 'Resonance — How It Works',
             content: <>
               <p>Resonance is the shared assistant surface for the pkt suite. It mounts as a launcher in the corner of every page, the same way the previous in-app assistant did, but the assistant itself runs on the resonance server rather than inside pktLog.</p>
-              <p><span className="text-gray-300 font-medium">Two addresses, two different machines.</span> <span className="text-gray-300 font-medium">Resonance server address</span> is where resonance lives — <code>embed.js</code> is loaded from it, and it must match what is typed into SETTINGS → ENROLL → Enroll Embed Server on resonance character for character, because <code>embed.js</code> derives its own origin from that string. Leave the port off if resonance sits behind a reverse proxy.</p>
+              <p><span className="text-gray-300 font-medium">Resonance AI Interface Server</span> is the interface resonance serves embeds from — <span className="text-amber-500 font-medium">not its admin portal</span>, which usually answers on a different address and will look almost right: it serves <code>embed.js</code> too, and only fails later with a &ldquo;not found&rdquo; on the session call. Whatever is typed into SETTINGS → ENROLL → Enroll Embed Server on resonance goes here character for character, because <code>embed.js</code> derives its own origin from that string. Leave the port off if it sits behind a reverse proxy.</p>
               <p><span className="text-gray-300 font-medium">pktLog&rsquo;s own address</span> is what a browser types to reach this app, and it is the string that has to appear on the resonance key&rsquo;s origins list. Leave it blank and pktLog works it out from the request — correct for a direct install, and wrong behind a reverse proxy, where it sees the internal address rather than the one users type.</p>
               <p><span className="text-gray-300 font-medium">pktLog never sends your login credentials.</span> It vouches for whoever is signed in and receives a short-lived, single-use code the browser spends on opening the widget. The key below never reaches the browser.</p>
               <p><span className="text-amber-500 font-medium">What the assistant will answer is configured in resonance, not here.</span> Scope is set by the profile the key is authorised against — this page controls who may open it, not what it may discuss.</p>
@@ -1997,7 +1997,7 @@ export default function Settings() {
           <Field label="Enabled" hint="Show the launcher to users. Separate from Test Connection on purpose.">
             <Toggle value={bool('resonance_enabled')} onChange={v => set('resonance_enabled', v)} />
           </Field>
-          <Field label="Resonance server address" hint="Where the resonance server lives. Not this app&rsquo;s address.">
+          <Field label="Resonance AI Interface Server" hint="The interface server, not the admin portal — they are different addresses.">
             <TextInput value={str('resonance_base_url')} onChange={v => set('resonance_base_url', v)} placeholder="https://resonance.example.com" mono />
           </Field>
           <Field label="Key" hint="Issued by resonance, one per placement. Never sent to the browser.">
