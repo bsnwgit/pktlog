@@ -209,6 +209,7 @@ export const api = {
       error?: string
       detail?: string
       origin: string
+      detected_origin?: string
       user_id_sent?: string
       parts?: string[]
       cap?: Record<string, unknown>
@@ -220,6 +221,7 @@ export const api = {
     request<{
       module_version: string
       origin: string
+      detected_origin: string
       breaker: { open: boolean; failures: number; retry_in_seconds: number; last_error: string }
       load_failures: { days: number; users: number; events: number; by_reason: Record<string, number> }
     }>('/resonance/status'),

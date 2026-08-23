@@ -93,6 +93,11 @@ DEFAULTS: dict[str, Any] = {
     # passing Test Connection: testing a key must never ship a widget to users.
     "resonance_enabled": False,
     "resonance_base_url": "",
+    # Public origin of THIS app, as a browser sees it — the string that has to be
+    # on the resonance key. Blank means "work it out from the request", which is
+    # right for a direct install and wrong behind a reverse proxy: the app then
+    # sees the internal scheme, host and port, not the address users type.
+    "resonance_origin": "",
     "resonance_key": "",              # <eid>.<secret> — encrypted at rest, masked in responses
     "resonance_roles": ["admin", "analyst", "viewer"],   # local roles allowed to load the widget
     "resonance_style": "bubble",      # bubble | inline
