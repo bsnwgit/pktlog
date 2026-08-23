@@ -304,8 +304,7 @@ function ResonanceOriginField({ value, onChange }: { value: string; onChange: (v
       </div>
       {!value.trim() && detected && (
         <p className="text-xs text-gray-500 mt-1">
-          Blank, so <span className="font-mono">{detected}</span> is being used. Behind a reverse proxy that is
-          usually the internal address rather than the one users type — type the real one here to override it.
+          Blank — using <span className="font-mono">{detected}</span>.
         </p>
       )}
     </div>
@@ -1986,22 +1985,24 @@ export default function Settings() {
             title: 'Resonance — How It Works',
             content: <>
               <p>Resonance is the shared assistant surface for the pkt suite. It mounts as a launcher in the corner of every page, the same way the previous in-app assistant did, but the assistant itself runs on the resonance server rather than inside pktLog.</p>
+              <p><span className="text-gray-300 font-medium">Two addresses, two different machines.</span> <span className="text-gray-300 font-medium">Resonance server address</span> is where resonance lives — <code>embed.js</code> is loaded from it, and it must match what is typed into SETTINGS → ENROLL → Enroll Embed Server on resonance character for character, because <code>embed.js</code> derives its own origin from that string. Leave the port off if resonance sits behind a reverse proxy.</p>
+              <p><span className="text-gray-300 font-medium">pktLog&rsquo;s own address</span> is what a browser types to reach this app, and it is the string that has to appear on the resonance key&rsquo;s origins list. Leave it blank and pktLog works it out from the request — correct for a direct install, and wrong behind a reverse proxy, where it sees the internal address rather than the one users type.</p>
               <p><span className="text-gray-300 font-medium">pktLog never sends your login credentials.</span> It vouches for whoever is signed in and receives a short-lived, single-use code the browser spends on opening the widget. The key below never reaches the browser.</p>
               <p><span className="text-amber-500 font-medium">What the assistant will answer is configured in resonance, not here.</span> Scope is set by the profile the key is authorised against — this page controls who may open it, not what it may discuss.</p>
               <p>Resonance must be reachable from the <span className="text-gray-300 font-medium">browser</span>, over HTTPS, with a certificate those browsers already trust. An untrusted certificate produces an empty widget with nothing in the console to explain it.</p>
             </>,
           }}
         >
-          <Field label="Enabled" hint="Deliberately separate from Test Connection — testing a key must never put a widget in front of users.">
+          <Field label="Enabled" hint="Show the launcher to users. Separate from Test Connection on purpose.">
             <Toggle value={bool('resonance_enabled')} onChange={v => set('resonance_enabled', v)} />
           </Field>
-          <Field label="Resonance server address" hint="Where the resonance server itself lives — embed.js is loaded from here. Must match what is typed into SETTINGS → ENROLL → Enroll Embed Server on resonance, character for character, because embed.js derives its own origin from that string. Leave the port off if resonance sits behind a reverse proxy. This is not pktLog's own address.">
+          <Field label="Resonance server address" hint="Where the resonance server lives. Not this app&rsquo;s address.">
             <TextInput value={str('resonance_base_url')} onChange={v => set('resonance_base_url', v)} placeholder="https://resonance.example.com" mono />
           </Field>
-          <Field label="Key" hint="One key per placement. Stored encrypted; never sent to the browser.">
+          <Field label="Key" hint="Issued by resonance, one per placement. Never sent to the browser.">
             <TextInput value={str('resonance_key')} onChange={v => set('resonance_key', v)} placeholder="e0000000000.…" secret mono />
           </Field>
-          <Field label="pktLog's own address" hint="The address a browser uses to reach pktLog. Copy it onto the resonance key's origins list, or the panel stays blank. Leave blank to detect it — see below.">
+          <Field label="pktLog's own address" hint="What browsers type to reach pktLog. Copy it onto the resonance key.">
             <ResonanceOriginField value={str('resonance_origin')} onChange={v => set('resonance_origin', v)} />
           </Field>
           <Field label="Who can use it" hint="Roles permitted to load the widget. Everyone else gets no launcher at all.">
@@ -2027,7 +2028,7 @@ export default function Settings() {
             />
           </Field>
           {str('resonance_style', 'bubble') === 'inline' && (
-            <Field label="Target element" hint="id of an element that already exists on the page. Without it nothing mounts.">
+            <Field label="Target element" hint="id of an element that already exists. Without it nothing mounts.">
               <TextInput value={str('resonance_target')} onChange={v => set('resonance_target', v)} mono />
             </Field>
           )}
@@ -2044,7 +2045,7 @@ export default function Settings() {
           <Field label="Open on load" hint="Show the panel expanded rather than waiting for a click.">
             <Toggle value={bool('resonance_open')} onChange={v => set('resonance_open', v)} />
           </Field>
-          <Field label="Hide on pages" hint="Comma-separated paths. Leaving a page listed here discards any conversation in progress, so keep the list short.">
+          <Field label="Hide on pages" hint="Comma-separated paths. Listing a page discards conversations on it.">
             <TextInput
               value={((settings['resonance_exclude_paths'] as string[]) ?? []).join(', ')}
               onChange={v => set('resonance_exclude_paths', v.split(',').map(x => x.trim()).filter(Boolean))}
