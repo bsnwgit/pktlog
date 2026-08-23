@@ -117,7 +117,8 @@ if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
     # db, logs, ingest journal, ssl, backups — from this by default).
     echo "install_dir: \"$INSTALL_DIR\"" >> "$INSTALL_DIR/config.yaml"
     echo "  Config created at $INSTALL_DIR/config.yaml"
-    echo "  !! Review and update cors_origins before production use !!"
+    echo "  cors_origins is empty (same-origin only) — set it only if something"
+    echo "  outside this host needs to call the API."
 else
     echo "  Config already exists — skipping."
 fi
