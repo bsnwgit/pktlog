@@ -89,25 +89,13 @@ async def search_logs(
 
 # ── /stats ────────────────────────────────────────────────────────────────────
 
-@router.get("/stats")
-async def get_stats(
-    _: CurrentUser,
-    hours: int = Query(24, ge=1, le=720, description="Lookback window in hours (max 30 days)"),
-    db: aiosqlite.Connection = Depends(get_db),
-):
-    """
-    Dashboard summary stats for the last N hours.
+async def build_summary(db: aiosqlite.Connection, hours: int) -> dict:
+    """Assemble the dashboard summary. Shared with the resonance data surface.
 
-    Returns:
-    ```json
-    {
-      "hours": 24,
-      "count_by_severity": [{"severity": 6, "severity_name": "info", "count": 1234}, ...],
-      "top_hosts":          [{"source_ip": "...", "source_name": "...", "count": 42}, ...],
-      "top_programs":       [{"program": "...", "count": 99}, ...],
-      "collector_last_seen":[{"collector_ip": "...", "collector_name": "...", "last_seen": "..."}, ...]
-    }
-    ```
+    A plain function rather than only a route body because two callers need the
+    same figures, and the alternative — one of them calling the other's route
+    function directly — silently breaks the day a parameter with a Query()
+    default is added to it.
     """
     try:
         storage = get_storage()
@@ -156,6 +144,29 @@ async def get_stats(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats")
+async def get_stats(
+    _: CurrentUser,
+    hours: int = Query(24, ge=1, le=720, description="Lookback window in hours (max 30 days)"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """
+    Dashboard summary stats for the last N hours.
+
+    Returns:
+    ```json
+    {
+      "hours": 24,
+      "count_by_severity": [{"severity": 6, "severity_name": "info", "count": 1234}, ...],
+      "top_hosts":          [{"source_ip": "...", "source_name": "...", "count": 42}, ...],
+      "top_programs":       [{"program": "...", "count": 99}, ...],
+      "collector_last_seen":[{"collector_ip": "...", "collector_name": "...", "last_seen": "..."}, ...]
+    }
+    ```
+    """
+    return await build_summary(db, hours)
 
 
 # ── /timeseries ───────────────────────────────────────────────────────────────

@@ -116,6 +116,40 @@ Turn on **Speakers Name** on the key too. Without it resonance records nothing �
 
 **What the assistant will and won't answer** is configured on the resonance side, by the profile the key is authorised against — not on this page. This page controls who may open it, not what it may discuss. Resonance can be pointed at `GET /api/resonance/docs` to keep its knowledge of pktLog in step with the installed version.
 
+**What the assistant can do — set per role.** *What each role can do* gives every local role one of three levels:
+
+| | |
+|---|---|
+| **No access** | No launcher at all. The person never sees the assistant. |
+| **Read only** | They can open it, and it can look things up in pktLog for them. |
+| **Read and write** | It can also act — acknowledge, switch, admit. |
+
+**Read only** covers the collected syslog (search, summary, timeline), the collector registry, the approval queue, alert rules and the alerts they have fired, and pktLog's own diagnostic log.
+
+**Read and write** adds exactly five things, and no more: acknowledge one alert, acknowledge all of them, switch an existing alert rule on or off, and admit or hide a sender waiting for approval. There is no delete of anything, no clearing of logs, and no creating or editing of configuration — the assistant can act on what you already put there, and cannot author or destroy it. Resonance stops and reads the actual values back to the person before it runs any of them.
+
+Four things bound all of it, and they are worth knowing before you switch the feature on:
+
+- **It is the person's own access, not a service account.** Every request is made by the browser on the session of whoever is signed in, so the assistant can only reach what that person could already open in pktLog.
+- **A level never exceeds the role.** Setting a role to *Read and write* does not give anyone a right they did not already have — it only decides whether the assistant may use the rights they do. An analyst on *Read and write* can acknowledge an alert, because analysts may; the same analyst still cannot switch a rule, because in pktLog that is an administrator's to do.
+- **It is off unless Resonance is.** Switch Resonance off, or set a role to *No access*, and everything stops with it. And where no role is set to *Read and write*, the write operations are withheld from what pktLog publishes altogether, so there is nothing at the resonance end that could be turned on.
+- **It is capped, twice.** Answers come back as a page plus the true total, so a search matching forty thousand lines returns a couple of dozen and says forty thousand. The page is then trimmed again if it would be too large to carry in a conversation, and says that it was — the assistant narrows the question rather than reciting the table or quietly showing you half of one. Queries that run long are given up on at fifteen seconds with an answer, not left to time out silently.
+
+Which operations exist is fixed in the code, not configurable per install — `/.well-known/resonance.json` on this server lists exactly what is on offer here, and needs no login to read because it contains names, not data. Every write the assistant performs is recorded in the application log with who asked for it.
+
+**Upgrading from an earlier version.** The old *Who can use it* tick list becomes *Read only* for each role that was ticked and *No access* for the rest. Nobody is moved to *Read and write* automatically — those roles were ticked when the assistant could not change anything, so granting it silently would not be consent.
+
+**Checking it after an upgrade.** Two scripts verify the data side without touching any data, and both are worth running after a version change:
+
+```
+venv/bin/python scripts/resonance_contract_check.py http://127.0.0.1:8768
+venv/bin/python scripts/resonance_schema_check.py
+```
+
+The first reads the two published documents and checks they are well formed — every operation described, every fixed vocabulary carrying its list of valid values, every list capped. The second checks they are *true*, by running each operation against this install's own store and comparing what comes back against what was promised. They catch different faults, and the second one is backend-specific: a pass on ClickHouse is not a pass on DuckDB.
+
+Everything the assistant does is in the application log, under `pktlog.api.resonance_data` — which question caused which lookup, and who asked for every change it made.
+
 **If it doesn't appear.** Diagnostics reports how many users could not load the widget in the last week; the usual causes are an ad blocker, a wrong server address, or resonance being unreachable. Repeated failures pause the integration for a few minutes rather than hammering resonance — the panel says so when that happens, and a successful Test Connection clears it.
 
 ## Alert engine

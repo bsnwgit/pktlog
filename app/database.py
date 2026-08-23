@@ -81,6 +81,61 @@ async def _run_migrations() -> None:
 
         await _encrypt_legacy_api_keys(conn)
         await _encrypt_legacy_suite_tokens(conn)
+        await _convert_resonance_roles_to_levels(conn)
+
+
+async def _convert_resonance_roles_to_levels(conn: aiosqlite.Connection) -> None:
+    """One-time data migration: resonance_roles (a flat list of roles allowed to
+    open the assistant) becomes resonance_role_levels (a level per role).
+
+    Every role that was on the old list becomes "read" and every role that was
+    not becomes "none". Deliberately nobody is migrated to "write": there were
+    no write operations when the old setting was ticked, so nothing on that list
+    was ever consent to let the assistant change anything. Granting it silently
+    on upgrade is exactly the sort of thing an admin should have to do on purpose.
+
+    The old key is removed rather than left behind, so there is no second
+    setting that looks live and is read by nothing.
+    """
+    marker = "998_resonance_role_levels.py"
+    async with conn.execute(
+        "SELECT 1 FROM _migrations WHERE filename = ?", (marker,)
+    ) as cur:
+        if await cur.fetchone():
+            return
+
+    import json as _json
+
+    async with conn.execute(
+        "SELECT value FROM settings WHERE key = 'resonance_roles'"
+    ) as cur:
+        row = await cur.fetchone()
+
+    legacy: list = []
+    if row and row[0]:
+        try:
+            parsed = _json.loads(row[0])
+            if isinstance(parsed, list):
+                legacy = [str(r) for r in parsed]
+        except (ValueError, TypeError):
+            legacy = []
+
+    async with conn.execute(
+        "SELECT 1 FROM settings WHERE key = 'resonance_role_levels'"
+    ) as cur:
+        already_set = await cur.fetchone() is not None
+
+    if not already_set:
+        levels = {role: ("read" if role in legacy else "none")
+                  for role in ("admin", "analyst", "viewer")}
+        await conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("resonance_role_levels", _json.dumps(levels)),
+        )
+
+    await conn.execute("DELETE FROM settings WHERE key = 'resonance_roles'")
+    await conn.execute("INSERT INTO _migrations (filename) VALUES (?)", (marker,))
+    await conn.commit()
 
 
 async def _encrypt_legacy_suite_tokens(conn: aiosqlite.Connection) -> None:

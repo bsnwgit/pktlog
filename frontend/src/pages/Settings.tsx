@@ -1253,16 +1253,20 @@ export default function Settings() {
   ], settings, load)
   const lucidSave = useSave(['lucid_api_token'], settings, load)
   const resonanceSave = useSave([
-    'resonance_enabled', 'resonance_base_url', 'resonance_key', 'resonance_roles',
+    'resonance_enabled', 'resonance_base_url', 'resonance_key', 'resonance_role_levels',
     'resonance_origin', 'resonance_ca_bundle',
     'resonance_style', 'resonance_target', 'resonance_label', 'resonance_side',
     'resonance_width', 'resonance_height', 'resonance_open', 'resonance_exclude_paths',
   ], settings, load)
-  const resonanceRoles = (settings['resonance_roles'] as string[]) ?? []
-  const toggleResonanceRole = (role: string) =>
-    set('resonance_roles', resonanceRoles.includes(role)
-      ? resonanceRoles.filter(r => r !== role)
-      : [...resonanceRoles, role])
+  // What each role may do with the assistant. Anything unrecognised reads as
+  // 'none', matching the server, so a hand-edited value fails closed here too.
+  const resonanceLevels = (settings['resonance_role_levels'] as Record<string, string>) ?? {}
+  const resonanceLevel = (role: string) => {
+    const level = resonanceLevels[role]
+    return level === 'read' || level === 'write' ? level : 'none'
+  }
+  const setResonanceLevel = (role: string, level: string) =>
+    set('resonance_role_levels', { ...resonanceLevels, [role]: level })
 
   const { tick } = useAutoRefresh()
   useEffect(() => { if (tick > 0) silentLoad() }, [tick])
@@ -1989,7 +1993,12 @@ export default function Settings() {
               <p><span className="text-gray-300 font-medium">pktLog&rsquo;s own address</span> is what a browser types to reach this app, and it is the string that has to appear on the resonance key&rsquo;s origins list. Leave it blank and pktLog works it out from the request — correct for a direct install, and wrong behind a reverse proxy, where it sees the internal address rather than the one users type.</p>
               <p><span className="text-gray-300 font-medium">pktLog never sends your login credentials.</span> It vouches for whoever is signed in and receives a short-lived, single-use code the browser spends on opening the widget. The key below never reaches the browser.</p>
               <p><span className="text-gray-300 font-medium">The panel&rsquo;s insides belong to resonance.</span> It is an iframe served from resonance&rsquo;s own origin, so pktLog cannot restyle it or move its controls — where the buttons sit is a resonance change. What pktLog can do is make the panel bigger, with <span className="text-gray-300 font-medium">Panel size</span>, which is usually what &ldquo;more room to read&rdquo; actually needs.</p>
-              <p><span className="text-amber-500 font-medium">What the assistant will answer is configured in resonance, not here.</span> Scope is set by the profile the key is authorised against — this page controls who may open it, not what it may discuss.</p>
+              <p><span className="text-amber-500 font-medium">What the assistant will discuss is configured in resonance, not here.</span> The subjects it will engage with are set by the profile the key is authorised against. What it can <span className="text-gray-300 font-medium">read</span> is a separate question, and that one is answered on this page.</p>
+              <p><span className="text-gray-300 font-medium">The assistant can read this install&rsquo;s data.</span> Syslog search, summary and timeline, the collector registry, the approval queue, alert rules and the alerts they have fired, and pktLog&rsquo;s own diagnostic log. Each call is made by this page on the session of whoever is signed in, so it reaches only what that person could already open. The list is published at <code>/.well-known/resonance.json</code> and is fixed in the code rather than configurable — but it is inert unless <span className="text-gray-300 font-medium">Enabled</span> is on and the person&rsquo;s role is above <span className="text-gray-300 font-medium">No access</span> below.</p>
+              <p><span className="text-gray-300 font-medium">Read and write adds five operations, and no more.</span> Acknowledge one alert, acknowledge all of them, switch an existing alert rule on or off, and admit or hide a sender waiting in the approval queue. There is deliberately no delete of anything, no clearing of logs, and no creating or editing of configuration — the assistant can act on what an administrator already put there, and cannot author or destroy it. Resonance stops and reads the real values back to the person before running any of them.</p>
+              <p><span className="text-gray-300 font-medium">A level never exceeds the role.</span> Two checks have to agree: the level set here, and pktLog&rsquo;s own rule for the thing being done. An analyst on <span className="text-gray-300 font-medium">Read and write</span> can acknowledge an alert, because analysts may; the same analyst cannot switch a rule, because that is an administrator&rsquo;s to do in the interface too. Setting a level does not grant anybody a right they did not already have — it decides whether the assistant may use the rights they do.</p>
+              <p>Where no role is set to <span className="text-gray-300 font-medium">Read and write</span>, the write operations are withheld from the published grant altogether, so nothing at the resonance end can be ticked into offering them.</p>
+              <p>Answers are capped so a conversation stays readable: a page plus the true count, trimmed again if it would be too large to carry, and the assistant is told when that happened so it narrows the question rather than showing half an answer.</p>
               <p>Resonance must be reachable from the <span className="text-gray-300 font-medium">browser</span>, over HTTPS, with a certificate those browsers already trust. An untrusted certificate produces an empty widget with nothing in the console to explain it.</p>
               <p><span className="text-gray-300 font-medium">pktLog also calls resonance directly</span>, server to server, so this host must be able to resolve resonance&rsquo;s name and trust its certificate — the browser doing both is not enough. Python verifies against its own bundled roots rather than the system store, so a certificate signed by an internal CA is trusted by every browser on the network and still rejected here. <span className="text-gray-300 font-medium">CA bundle</span> points it at the system store instead; on Debian and Ubuntu that is <code>/etc/ssl/certs/ca-certificates.crt</code>.</p>
             </>,
@@ -2010,18 +2019,21 @@ export default function Settings() {
           <Field label="CA bundle" hint="Only needed if resonance uses an internal CA. Blank trusts public CAs only.">
             <TextInput value={str('resonance_ca_bundle')} onChange={v => set('resonance_ca_bundle', v)} placeholder="/etc/ssl/certs/ca-certificates.crt" mono />
           </Field>
-          <Field label="Who can use it" hint="Roles permitted to load the widget. Everyone else gets no launcher at all.">
-            <div className="flex items-center gap-4">
+          <Field label="What each role can do" hint="No access hides the launcher entirely. Read only lets the assistant look. Read and write also lets it act — never beyond what that role can already do in pktLog.">
+            <div className="space-y-2">
               {['admin', 'analyst', 'viewer'].map(role => (
-                <label key={role} className="flex items-center gap-2 text-sm text-white">
-                  <input
-                    type="checkbox"
-                    checked={resonanceRoles.includes(role)}
-                    onChange={() => toggleResonanceRole(role)}
-                    className="rounded border-gray-700 bg-gray-800"
+                <div key={role} className="flex items-center gap-3">
+                  <span className="w-20 text-sm text-white">{role}</span>
+                  <SelectInput
+                    value={resonanceLevel(role)}
+                    onChange={v => setResonanceLevel(role, v)}
+                    options={[
+                      { value: 'none',  label: 'No access' },
+                      { value: 'read',  label: 'Read only' },
+                      { value: 'write', label: 'Read and write' },
+                    ]}
                   />
-                  {role}
-                </label>
+                </div>
               ))}
             </div>
           </Field>
