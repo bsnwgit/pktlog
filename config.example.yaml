@@ -54,9 +54,12 @@ secret_key: "CHANGE_ME_generate_with_openssl_rand_hex_32"
 # python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 credential_key: "CHANGE_ME_generate_with_fernet_generate_key"
 
-# ── CORS (restrict to your actual origin in production) ──────────────────────
-cors_origins:
-  - "*"
+# ── CORS ─────────────────────────────────────────────────────────────────────
+# Empty is correct for a normal install: the UI is served from this same origin,
+# so no cross-origin permission is needed. Only list origins here if something
+# genuinely external calls the API — "*" allows every site to make credentialed
+# requests, which is never what an appliance wants.
+cors_origins: []
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 log_level: "info"
