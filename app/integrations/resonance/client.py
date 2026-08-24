@@ -33,6 +33,9 @@ log = logging.getLogger("pktlog.resonance.client")
 MAX_ID_LEN = 64
 MAX_ROLE_LEN = 32
 MAX_ROLES = 16
+# No published cap for name; held to the same 64 as id, which is the length
+# resonance is known to normalise an identity field to.
+MAX_NAME_LEN = 64
 
 DEFAULT_TIMEOUT = 10.0
 
@@ -78,9 +81,18 @@ class ResonanceClient:
         if not self.configured:
             raise ResonanceNotConfigured()
 
+        # id / name / roles, matching resonance's reference implementation. The
+        # id is prefixed so a shared audit trail shows which pkt app is calling;
+        # name is the bare login, because that is what a person reading
+        # resonance's own records expects to see next to it. pktLog has no
+        # separate display-name field, so the two differ only by the prefix.
         payload = {
             "key": self.key,
-            "user": {"id": build_user_id(username), "roles": _clean_roles(roles)},
+            "user": {
+                "id": build_user_id(username),
+                "name": (username or "").strip()[:MAX_NAME_LEN],
+                "roles": _clean_roles(roles),
+            },
         }
 
         try:
