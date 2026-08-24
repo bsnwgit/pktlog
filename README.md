@@ -420,7 +420,7 @@ embed.js  ──GET──▶  /api/resonance/code  ──POST──▶  /embed/s
 frame ──────────────────────────────────────────────▶  /embed?c=<code>
 ```
 
-pktLog vouches for whoever is signed in and receives a short-lived, single-use code. The key never reaches the browser, and resonance never sees a pktLog credential. The identity sent is `pktlog-<username>` — app and login together, so resonance's audit trail shows both. No email address is sent.
+pktLog vouches for whoever is signed in and receives a short-lived, single-use code. The key never reaches the browser, and resonance never sees a pktLog credential. The session payload is `{id, name, roles}`, matching resonance's reference implementation: `id` is `pktlog-<username>` so a shared audit trail shows app and login together, `name` is the bare login because that is what reads naturally beside it, and `roles` carries the pktLog role. pktLog has no separate display-name field, so `id` and `name` differ only by the prefix. No email address is sent.
 
 `GET /api/resonance/code` is the one cookie-authenticated route in the app. embed.js fetches `data-code-url` itself, outside the SPA, and pktLog's access token lives in memory by design, so the refresh cookie is the only credential the browser will attach. It is validated the way `/api/auth/refresh` validates it and is not rotated. `Sec-Fetch-Site` and `Origin` are both checked before the cookie is honoured, so the route does not rest on `SameSite` alone.
 
