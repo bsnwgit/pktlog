@@ -10,12 +10,17 @@ import html
 from pathlib import Path
 
 import aiosqlite
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from app.config import get_settings
+from app.dependencies import require_suite_token
 
-router = APIRouter()
+# These views are embedded as unauthenticated iframes by pktHub's NOC Builder,
+# so they can't require a login session — but they do render internal log and
+# alert data, so every route on this router requires a valid X-Suite-Token
+# (the trusted-proxy secret pktHub already sends on every proxied request).
+router = APIRouter(dependencies=[Depends(require_suite_token)])
 settings = get_settings()
 
 _DB = Path(__file__).parent.parent.parent / "pktlog.db"
