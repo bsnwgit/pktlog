@@ -26,6 +26,7 @@ from app.api import collectors as collectors_router
 from app.api import approval as approval_router
 from app.api import suite as suite_router
 from app.api import widgets as widgets_router
+from app.api import nav as nav_router
 from app.api import alerts as alerts_router
 from app.api import ws as ws_router
 from app.api import resonance as resonance_router
@@ -240,6 +241,7 @@ app.include_router(collectors_router.router, prefix="/api/collectors", tags=["co
 app.include_router(approval_router.router,  prefix="/api/approval",   tags=["approval"])
 app.include_router(suite_router.router, prefix="/api/suite", tags=["suite"])
 app.include_router(widgets_router.router,  prefix="/api",          tags=["widgets"])
+app.include_router(nav_router.router,      prefix="/api",          tags=["nav"])
 app.include_router(alerts_router.router,   prefix="/api/alerts",   tags=["alerts"])
 app.include_router(ws_router.router,       prefix="/api/ws",       tags=["websocket"])
 app.include_router(user_api_keys_router.router, prefix="/api/user-api-keys", tags=["user-api-keys"])
