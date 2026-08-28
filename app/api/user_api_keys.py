@@ -22,7 +22,7 @@ from app.crypto import decrypt_str, encrypt_str
 
 # Public, harmless IP used to exercise each provider's lookup endpoint when
 # testing a key — Google Public DNS, safe to query against any provider.
-_TEST_IP = "8.8.8.8"
+_TEST_IP = "8.8.8.8"  # sanitize: allow-public-ip
 
 log = logging.getLogger("pktlog.user_api_keys")
 

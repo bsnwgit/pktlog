@@ -50,3 +50,6 @@ migrations/versions/
 
 # Install artifacts
 scripts/__pycache__/
+
+# Claude project notes (local only)
+CLAUDE.md
