@@ -226,7 +226,7 @@ export default function Users() {
         {loading ? (
           <div className="flex items-center justify-center h-32 text-white text-sm">Loading…</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="f-tbl-cards w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
                 <th className="text-left px-5 py-3 text-xs font-medium text-white uppercase tracking-wider">User</th>
@@ -240,7 +240,7 @@ export default function Users() {
             <tbody className="divide-y divide-gray-800/60">
               {users.map(u => (
                 <tr key={u.id} className="hover:bg-gray-800/30 transition-colors">
-                  <td className="px-5 py-3.5">
+                  <td data-label="User" className="px-5 py-3.5">
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-full bg-blue-700/50 flex items-center justify-center text-xs font-bold text-blue-300">
                         {u.username[0].toUpperCase()}
@@ -251,18 +251,18 @@ export default function Users() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-white">{u.email}</td>
-                  <td className="px-5 py-3.5">
+                  <td data-label="Email" className="px-5 py-3.5 text-white">{u.email}</td>
+                  <td data-label="Role" className="px-5 py-3.5">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${roleBadge(u.role)}`}>
                       {u.role}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5">
+                  <td data-label="Status" className="px-5 py-3.5">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${badge(u.is_active)}`}>
                       {u.is_active ? 'Active' : 'Disabled'}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-white text-xs">
+                  <td data-label="Last Login" className="px-5 py-3.5 text-white text-xs">
                     {u.last_login
                       // last_login is naive UTC (SQLite datetime('now'), no 'Z') —
                       // normalize before parsing so it isn't misread as local time.
