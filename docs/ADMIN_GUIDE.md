@@ -92,6 +92,8 @@ Configure schedule, rotation, and path at Data → Backups (or trigger immediate
 
 Settings → Security → Suite Integration → copy the token, register in pktHub's App Manager. pktHub can then proxy pktLog with users already signed in, and can remotely lock this app's Settings page (shows a "remotely managed" banner here) or force all direct browser access into a redirect (`POST /api/suite/direct-access`). That lock auto-clears if pktHub goes unreachable for more than 5 minutes or is down at this app's startup, so a lock can't permanently strand admins out.
 
+Where that redirect points is no longer set here. pktHub sends the address along with the lock, because it is built from the hub's own Base URL and this app's id in the hub's registry — neither of which is visible from this side, so asking an operator to type it locally meant guessing a foreign key. The field at Settings → Integrations → pktHub Integration remains for an install with no pktHub in front of it; it takes http/https only, since every visitor follows it while the lock is on, and pktHub overwrites it whenever it applies a lock.
+
 There's also an **outbound** Integrations API (`app/api/integrations.py`) for named connections *from* pktLog *to* sibling pkt apps (pktipam/pktflow/pktsnmp/pktpcap/pktwifi/pkthub) — backend/DB only as of this writing, no consumer feature reads from it yet.
 
 ## Resonance (embedded assistant)
