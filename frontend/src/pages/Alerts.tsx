@@ -400,26 +400,28 @@ function MiniTable({ title, headers, rows }: {
   return (
     <div>
       <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide">{title}</p>
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="text-gray-500">
-            {headers.map((h, i) => (
-              <th key={i} className={`pb-1 font-normal ${i === headers.length - 1 ? 'text-right' : 'text-left'}`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri} className="border-t border-gray-800/70">
-              {row.map((cell, ci) => (
-                <td key={ci} className={`py-1 ${ci === row.length - 1 ? 'text-right text-gray-200' : 'text-gray-200 font-mono'}`}>
-                  {typeof cell === 'string' || typeof cell === 'number' ? (typeof cell === 'string' ? cell : cell.toLocaleString()) : cell}
-                </td>
+      <div className="f-tbl-scroll">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="text-gray-500">
+              {headers.map((h, i) => (
+                <th key={i} className={`pb-1 font-normal ${i === headers.length - 1 ? 'text-right' : 'text-left'}`}>{h}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri} className="border-t border-gray-800/70">
+                {row.map((cell, ci) => (
+                  <td key={ci} className={`py-1 ${ci === row.length - 1 ? 'text-right text-gray-200' : 'text-gray-200 font-mono'}`}>
+                    {typeof cell === 'string' || typeof cell === 'number' ? (typeof cell === 'string' ? cell : cell.toLocaleString()) : cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -1408,90 +1410,92 @@ export default function Alerts() {
               )}
               <span className="text-xs text-white ml-auto">{displayedRules.length} rule{displayedRules.length !== 1 ? 's' : ''}</span>
             </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  {RULE_COLS.map(col => (
-                    <th
-                      key={col.label}
-                      onClick={() => col.key && toggleRulesSort(col.key)}
-                      className={`px-4 py-3 text-left text-xs font-medium select-none
-                        ${col.key ? `cursor-pointer ${rulesSortKey === col.key ? 'text-blue-400' : 'text-white hover:text-gray-200'}` : 'text-white'}`}
-                    >
-                      {col.label}
-                      {rulesSortKey === col.key && col.key && <span className="ml-1">{rulesSortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800/50">
-                {displayedRules.map(rule => (
-                  <tr key={rule.id} className="hover:bg-gray-800/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleToggle(rule)}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                          rule.enabled ? 'bg-blue-600' : 'bg-gray-700'
-                        }`}
+            <div className="f-tbl-scroll">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    {RULE_COLS.map(col => (
+                      <th
+                        key={col.label}
+                        onClick={() => col.key && toggleRulesSort(col.key)}
+                        className={`px-4 py-3 text-left text-xs font-medium select-none
+                          ${col.key ? `cursor-pointer ${rulesSortKey === col.key ? 'text-blue-400' : 'text-white hover:text-gray-200'}` : 'text-white'}`}
                       >
-                        <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
-                          rule.enabled ? 'translate-x-5' : 'translate-x-1'
-                        }`} />
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-white">{rule.name}</p>
-                      {rule.description && (
-                        <p className="text-xs text-white mt-0.5">{rule.description}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {(() => {
-                        const grp = ruleGroup(rule.rule_type)
-                        return (
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${TOPIC_STYLES[grp] ?? 'bg-gray-800 text-gray-400'}`}>
-                            {grp}
-                          </span>
-                        )
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-white text-xs">
-                      <span className="bg-gray-800 px-2 py-0.5 rounded">{rule.rule_type}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${SEV_STYLES[rule.severity] ?? SEV_STYLES.info}`}>
-                        {rule.severity}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-white">{rule.channels.join(', ')}</td>
-                    <td className="px-4 py-3 text-xs text-white">{rule.cooldown_min}m</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => { setEditRule(rule); setAddingRule(false) }}
-                          className="text-xs text-white hover:text-blue-400 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteRule(rule.id)}
-                          className="text-xs text-white hover:text-red-400 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
+                        {col.label}
+                        {rulesSortKey === col.key && col.key && <span className="ml-1">{rulesSortDir === 'asc' ? '↑' : '↓'}</span>}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-                {displayedRules.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-white">
-                      {rulesFilter ? 'No rules match this filter' : 'No alert rules yet — click "+ New rule" to add one'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-800/50">
+                  {displayedRules.map(rule => (
+                    <tr key={rule.id} className="hover:bg-gray-800/30 transition-colors">
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleToggle(rule)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            rule.enabled ? 'bg-blue-600' : 'bg-gray-700'
+                          }`}
+                        >
+                          <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
+                            rule.enabled ? 'translate-x-5' : 'translate-x-1'
+                          }`} />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-white">{rule.name}</p>
+                        {rule.description && (
+                          <p className="text-xs text-white mt-0.5">{rule.description}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const grp = ruleGroup(rule.rule_type)
+                          return (
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${TOPIC_STYLES[grp] ?? 'bg-gray-800 text-gray-400'}`}>
+                              {grp}
+                            </span>
+                          )
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 text-white text-xs">
+                        <span className="bg-gray-800 px-2 py-0.5 rounded">{rule.rule_type}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${SEV_STYLES[rule.severity] ?? SEV_STYLES.info}`}>
+                          {rule.severity}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-white">{rule.channels.join(', ')}</td>
+                      <td className="px-4 py-3 text-xs text-white">{rule.cooldown_min}m</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => { setEditRule(rule); setAddingRule(false) }}
+                            className="text-xs text-white hover:text-blue-400 transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRule(rule.id)}
+                            className="text-xs text-white hover:text-red-400 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {displayedRules.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-white">
+                        {rulesFilter ? 'No rules match this filter' : 'No alert rules yet — click "+ New rule" to add one'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
             )
           })()}

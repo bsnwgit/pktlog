@@ -141,7 +141,7 @@ export default function Approval() {
       {error && <p className="text-xs text-red-400">{error}</p>}
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="f-tbl-cards w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800 text-xs text-gray-500">
               <th className="px-4 py-3 text-left font-medium w-40">Sender IP</th>
@@ -168,16 +168,16 @@ export default function Approval() {
             {pending.map(p => (
               <React.Fragment key={p.collector_ip}>
                 <tr className={p.ignored ? 'opacity-50' : undefined}>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-300">
+                  <td data-label="Sender IP" className="px-4 py-2.5 font-mono text-xs text-gray-300">
                     <IpLink ip={p.collector_ip} />
                     {!!p.ignored && <span className="ml-2 text-[10px] text-gray-500 uppercase">ignored</span>}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{ago(p.first_seen)}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{ago(p.last_seen)}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-400 text-right tabular-nums">
+                  <td data-label="First seen" className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{ago(p.first_seen)}</td>
+                  <td data-label="Last seen" className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">{ago(p.last_seen)}</td>
+                  <td data-label="Dropped" className="px-3 py-2.5 text-xs text-gray-400 text-right tabular-nums">
                     {p.message_count.toLocaleString()}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-gray-500 max-w-0">
+                  <td data-label="Sample message" className="px-3 py-2.5 text-xs text-gray-500 max-w-0">
                     <p className="truncate font-mono">{p.sample_message || '—'}</p>
                   </td>
                   <td className="px-3 py-2.5">
