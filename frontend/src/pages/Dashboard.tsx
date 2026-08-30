@@ -64,7 +64,7 @@ function fmtBucket(iso: string, hours: number, timeZone: string): string {
 function StatCard({ name, count, cfg }: { name: string; count: number; cfg: typeof SEV_CONFIG[string] }) {
   return (
     <div className={`rounded-xl border px-4 py-3 flex items-center justify-between ${cfg.bg}`}>
-      <span className={`text-sm font-medium capitalize ${cfg.color}`}>{cfg.label}</span>
+      <span className={`text-sm font-medium capitalize min-w-0 truncate ${cfg.color}`}>{cfg.label}</span>
       <span className={`text-xl font-bold tabular-nums ${cfg.color}`}>
         {count.toLocaleString()}
       </span>
