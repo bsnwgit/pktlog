@@ -6,7 +6,7 @@
 
 Syslog ingest management and visualization platform. Receives syslog data over UDP/TCP, stores events in ClickHouse, and provides a React UI for search, alerting, and reporting.
 
-Part of the **pktSuite** platform (SSO with pktHub/pktFlow via a shared `suite_token`).
+Part of the **[pktSuite](#the-pkt-suite)** platform (SSO with pktHub/pktFlow via a shared `suite_token`).
 
 ---
 
@@ -687,3 +687,31 @@ reopens.
 - The pktSuite `suite_token` is a shared secret across pktHub/pktFlow/pktLog — never commit a real value to a tracked file, and rotating it requires updating it in all three services simultaneously
 - If a `config.yaml` with a real `secret_key` or `suite_token` is ever accidentally committed, treat both as compromised: rotate `secret_key` immediately (it only affects this service), but coordinate before rotating `suite_token` since it will break SSO for pktHub/pktFlow until updated everywhere
 - Outbound `integrations.suite_token` rows (see [Outbound integrations](#outbound-integrations-sibling-apps)) are Fernet-encrypted at rest using the same `credential_key` as user API keys — a legacy plaintext row is encrypted automatically, once, the next time the app starts
+
+## The pkt suite
+
+**pktLog** is one of ten apps in the pkt suite — self-hosted tooling for network
+and security operations. Each installs and runs standalone, so take only the ones
+you need; they share one architecture (FastAPI + React), one look, one
+`admin`/`analyst`/`viewer` role model, and a suite token that lets siblings read
+one another's data. Default ports don't collide (8760–8769), so any combination
+runs on a single host.
+
+| App | Port | What it does |
+|---|---|---|
+| **[pktFlow](https://github.com/bsnwgit/pktflow)** | `8766` | NetFlow, sFlow and IPFIX collection — flow search, traffic analytics, geo and topology views |
+| **[pktSNMP](https://github.com/bsnwgit/pktsnmp)** | `8767` | SNMP polling and trap receiving for any OID — device health and metric history without a full NMS |
+| **pktLog** *(you are here)* | `8768` | Syslog over UDP, TCP and TLS — parsing, enrichment, full-text search and forwarding |
+| **[pktPCAP](https://github.com/bsnwgit/pktpcap)** | `8765` | Packet capture analysis in the browser — drop in a `.pcap` for TCP, DNS and threat findings, no Wireshark install |
+| **[pktWiFi](https://github.com/bsnwgit/pktwifi)** | `8769` | Access point, RF and client visibility from Meraki and UniFi controllers or plain SNMP polling |
+| **[pktIPAM](https://github.com/bsnwgit/pktipam)** | `8761` | IP address management reconciling declared subnets against live DHCP, DNS and device data, flagging conflicts |
+| **[pktNode](https://github.com/bsnwgit/pktnode)** | `8764` | Endpoint monitoring and management for Mac, Windows and Linux via a lightweight Go agent |
+| **[pktSecurity](https://github.com/bsnwgit/pktsecurity)** | `8762` | Security operations across the estate — CVE exposure, threat intelligence, ATT&CK-mapped detections and case management |
+| **[pktCert](https://github.com/bsnwgit/pktcert)** | `8763` | TLS certificate discovery and expiry tracking, plus an internal CA — issue, revoke and serve CRLs |
+| **[pktHub](https://github.com/bsnwgit/pkthub)** | `8760` | The front door — one sign-in, one alert stream, NOC wallboards and user management across every registered app |
+
+[pktHub](https://github.com/bsnwgit/pkthub) is optional — it registers the others
+and puts them behind a single login with shared alerting and NOC wallboards — but
+every app is fully usable without it.
+
+More at **[pktsolution.com](https://pktsolution.com)**.
