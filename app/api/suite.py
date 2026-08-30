@@ -136,6 +136,19 @@ async def set_direct_access(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     locked = bool(body.get("locked", False))
+    # pktHub sends the address it wants locked visitors sent to. It is the only
+    # party that can build it — the URL carries the hub's own address and this
+    # app's id in the hub's registry, neither of which is visible from here — so
+    # it arrives with the lock rather than being typed in locally beforehand.
+    redirect_url = (body.get("hub_redirect_url") or "").strip()
+    # http/https only. This value arrives over the network, and once the lock is
+    # on every visitor to this app follows it, so a "javascript:" target here
+    # would be an XSS sink rather than a redirect.
+    if redirect_url and not redirect_url.lower().startswith(("http://", "https://")):
+        return JSONResponse(
+            {"error": "hub_redirect_url must start with http:// or https://"},
+            status_code=400,
+        )
     try:
         async with _aio.connect(settings.db_path) as db:
             await db.execute(
@@ -143,8 +156,16 @@ async def set_direct_access(request: Request):
                 ("true" if locked else "false",))
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('lock_heartbeat_at', datetime('now'))")
+            if redirect_url:
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES ('hub_redirect_url', ?)",
+                    (redirect_url,))
             await db.commit()
-        return JSONResponse({"status": "ok", "direct_ui_locked": locked})
+        return JSONResponse({
+            "status": "ok",
+            "direct_ui_locked": locked,
+            "hub_redirect_url": redirect_url,
+        })
     except Exception:
         # The exception text carries the database path and internal SQL, and
         # this endpoint answers pktHub over the network — log it, don't return it.
