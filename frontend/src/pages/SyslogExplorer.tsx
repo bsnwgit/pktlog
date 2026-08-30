@@ -441,7 +441,7 @@ export default function SyslogExplorer() {
             ))}
           </div>
         ) : records.length === 0 ? (
-          <div className="px-5 py-10 text-center text-gray-600 text-sm">
+          <div className="f-tbl-scroll px-5 py-10 text-center text-gray-600 text-sm">
             No log records found for this filter set.
           </div>
         ) : (

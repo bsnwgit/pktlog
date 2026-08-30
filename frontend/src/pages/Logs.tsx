@@ -539,7 +539,7 @@ export default function Logs() {
             <span>No log records match your filters</span>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="f-tbl-scroll overflow-x-auto">
             <table className="w-full text-xs font-mono">
               <thead>
                 <tr className="border-b border-gray-800 text-gray-500 text-left">
