@@ -139,6 +139,10 @@ Six channels, all configured on the Notifications tab and dispatched from `app/a
 
 ## Troubleshooting
 
+The five that come up most often. For anything else — the ingest path end to
+end, the collector registry, the journal, storage, alerts, TLS, upgrades,
+performance — see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 | Symptom | Check |
 |---|---|
 | Service won't start | `journalctl -u pktlog -n 50`; check `config.yaml` paths and secret key |
