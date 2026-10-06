@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from app.auth.local import verify_password, create_access_token, create_refresh_token, decode_refresh_token
+from app.auth import lockout, throttle
 from app.auth import saml as saml_auth
 from app.database import get_db
 
@@ -33,19 +34,42 @@ class TokenResponse(BaseModel):
 # ── Local auth ────────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, response: Response, db: aiosqlite.Connection = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, response: Response, db: aiosqlite.Connection = Depends(get_db)):
+    # An address that has made too many failed attempts is refused outright,
+    # whatever it sends — before the username is even looked up.
+    address = throttle.client_address(request)
+    remaining = await throttle.blocked_seconds(db, address)
+    if remaining:
+        raise throttle.blocked_exception(remaining)
+
     async with db.execute(
-        "SELECT id, hashed_password, role, is_active FROM users WHERE username = ? OR email = ?",
+        f"SELECT id, hashed_password, role, is_active, {lockout.LOCK_COLUMNS} FROM users WHERE username = ? OR email = ?",
         (body.username, body.username),
     ) as cur:
         user = await cur.fetchone()
 
     if not user or not user["is_active"]:
+        remaining = await throttle.record_failure(db, address)
+        if remaining:
+            raise throttle.blocked_exception(remaining)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # Refused before the password is looked at, so a locked account cannot be
+    # guessed at and a correct password does not get past the lock.
+    state = lockout.describe(user)
+    if state["locked"]:
+        raise lockout.locked_exception(state)
 
     if not user["hashed_password"] or not verify_password(body.password, user["hashed_password"]):
+        state = await lockout.record_failure(db, user["id"])
+        remaining = await throttle.record_failure(db, address)
+        if remaining:
+            raise throttle.blocked_exception(remaining)
+        if state["locked"]:
+            raise lockout.locked_exception(state)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    await lockout.record_success(db, user["id"])
     # Update last_login + auth provider
     await db.execute("UPDATE users SET last_login = datetime('now'), auth_provider = 'local' WHERE id = ?", (user["id"],))
     await db.commit()

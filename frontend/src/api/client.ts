@@ -235,6 +235,7 @@ export const api = {
   activateUser: (id: number) => request(`/users/${id}/activate`, { method: 'PATCH' }),
   deactivateUser: (id: number) => request(`/users/${id}/deactivate`, { method: 'PATCH' }),
   setDefaultAdmin: (id: number) => request(`/users/${id}/set-default-admin`, { method: 'PATCH' }),
+  unlockUser: (id: number) => request(`/users/${id}/unlock`, { method: 'POST' }),
   resetUserPassword: (id: number, newPassword: string) =>
     request(`/users/${id}/reset-password`, { method: 'PATCH', body: JSON.stringify({ new_password: newPassword }) }),
   changeMyPassword: (currentPassword: string, newPassword: string) =>
@@ -652,6 +653,9 @@ export interface User {
   created_at: string
   last_login: string | null
   has_password: boolean
+  is_locked?: boolean
+  lock_permanent?: boolean
+  locked_until?: string | null
   auth_provider: string
 }
 

@@ -177,6 +177,8 @@ Okta SAML is supported and **disabled by default** (`okta_saml_enabled`).
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| "Too many failed sign-in attempts from this address" (HTTP 429) | The address made too many failed sign-ins and is blocked for a while, even with correct credentials. Behind a proxy on another host every user shares the proxy's address | It ends by itself (the message says how long). Raise *Failed sign-ins per address* under Settings -> Security -> Auth if real users are hitting it |
+| "This account is locked after repeated failed logins" | Too many failed logins: locked 30 minutes the first time, until an admin unlocks it the second time | An admin clicks the unlock icon on Settings -> Security -> Users, or run `scripts/unlock_user.py <username>` on the server |
 | 401 immediately after logging in | Clock skew invalidates the token's `exp` | `timedatectl`; fix NTP |
 | Logged out after 8 hours | `session_timeout_minutes` | Raise it in Settings if that is wrong for you |
 | SAML login loops or errors | IdP metadata mismatch | Check `okta_saml_idp_entity_id`, `okta_saml_idp_sso_url` and `okta_saml_idp_cert` (the cert goes in **without** header/footer lines). `okta_saml_sp_entity_id` defaults to `base_url/api/auth/saml/metadata` |
