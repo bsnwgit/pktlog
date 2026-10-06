@@ -4,10 +4,11 @@ CRUD /api/users — admin user management.
 from __future__ import annotations
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from typing import Optional
 
+from app.auth import lockout, throttle
 from app.auth.local import hash_password, verify_password
 from app.database import get_db
 from app.dependencies import AdminUser, CurrentUser
@@ -33,6 +34,9 @@ class UserOut(BaseModel):
     last_login: Optional[str]
     has_password: bool = True
     auth_provider: str = "local"
+    is_locked: bool = False
+    lock_permanent: bool = False
+    locked_until: Optional[str] = None
 
 
 class PasswordChange(BaseModel):
@@ -55,6 +59,15 @@ class PasswordReset(BaseModel):
     new_password: str
 
 
+def _with_lock(row) -> dict:
+    """A user row as a dict, with the lockout state worked out when the query
+    selected the lock columns (the raw columns are replaced by the result)."""
+    out = {k: row[k] for k in row.keys() if k not in ("is_locked", "locked_until", "temp_locked")}
+    lock = lockout.describe(row) if "temp_locked" in row.keys() else {"locked": False, "permanent": False, "until": None}
+    out.update(is_locked=lock["locked"], lock_permanent=lock["permanent"], locked_until=lock["until"])
+    return out
+
+
 # ── /me endpoints (must be before /{user_id} to avoid path collision) ──────────
 
 @router.get("/me", response_model=UserOut)
@@ -69,16 +82,37 @@ async def get_me(user: CurrentUser, db: aiosqlite.Connection = Depends(get_db)):
 @router.patch("/me/password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_my_password(
     body: PasswordChange,
+    request: Request,
     user: CurrentUser,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    """Any logged-in user can change their own password after verifying the current one."""
+    """Any logged-in user can change their own password after verifying the current one.
+
+    A wrong current password counts as a failed login, so a signed-in session
+    cannot be used to guess it: the same account lockout and address throttle
+    apply as at the login form."""
+    address = throttle.client_address(request)
+    remaining = await throttle.blocked_seconds(db, address)
+    if remaining:
+        raise throttle.blocked_exception(remaining)
     async with db.execute(
-        "SELECT hashed_password FROM users WHERE id=?", (user["id"],)
+        f"SELECT hashed_password, {lockout.LOCK_COLUMNS} FROM users WHERE id=?", (user["id"],)
     ) as cur:
         row = await cur.fetchone()
-    if not row or not verify_password(body.current_password, row["hashed_password"]):
+    if row:
+        state = lockout.describe(row)
+        if state["locked"]:
+            raise lockout.locked_exception(state)
+    if not row or not row["hashed_password"] or not verify_password(body.current_password, row["hashed_password"]):
+        if row:
+            state = await lockout.record_failure(db, user["id"])
+            remaining = await throttle.record_failure(db, address)
+            if remaining:
+                raise throttle.blocked_exception(remaining)
+            if state["locked"]:
+                raise lockout.locked_exception(state)
         raise HTTPException(status_code=400, detail="Current password is incorrect")
+    await lockout.record_success(db, user["id"])
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     await db.execute(
@@ -93,11 +127,11 @@ async def change_my_password(
 @router.get("/", response_model=list[UserOut])
 async def list_users(_: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
     async with db.execute(
-        "SELECT id, username, email, role, is_active, is_default_admin, created_at, last_login "
+        f"SELECT id, username, email, role, is_active, is_default_admin, created_at, last_login, {lockout.LOCK_COLUMNS} "
         "FROM users ORDER BY username"
     ) as cur:
         rows = await cur.fetchall()
-    return [_user_to_dict(r) for r in rows]
+    return [_user_to_dict(_with_lock(r)) for r in rows]
 
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -133,13 +167,14 @@ async def update_user(
     await db.execute(f"UPDATE users SET {update_fields} WHERE id=?", params)
     await db.commit()
     async with db.execute(
-        "SELECT id, username, email, role, is_active, is_default_admin, created_at, last_login FROM users WHERE id=?",
+        f"SELECT id, username, email, role, is_active, is_default_admin, created_at, last_login, {lockout.LOCK_COLUMNS} "
+        "FROM users WHERE id=?",
         (user_id,),
     ) as cur:
         row = await cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
-    return _user_to_dict(row)
+    return _user_to_dict(_with_lock(row))
 
 
 @router.patch("/{user_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
@@ -152,6 +187,14 @@ async def deactivate_user(user_id: int, _: AdminUser, db: aiosqlite.Connection =
 async def activate_user(user_id: int, _: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
     await db.execute("UPDATE users SET is_active = 1 WHERE id = ?", (user_id,))
     await db.commit()
+
+
+@router.post("/{user_id}/unlock", status_code=status.HTTP_204_NO_CONTENT)
+async def unlock_user(user_id: int, _: AdminUser, db: aiosqlite.Connection = Depends(get_db)):
+    """Admin-only: lift a failed-login lockout, temporary or permanent, and
+    clear the failure count and the record of earlier lockouts."""
+    if not await lockout.unlock(db, user_id):
+        raise HTTPException(status_code=404, detail="User not found")
 
 
 @router.patch("/{user_id}/set-default-admin", status_code=status.HTTP_204_NO_CONTENT)
