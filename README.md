@@ -1,6 +1,10 @@
 # pktLog
 
 <p align="center">
+  <img src="docs/screenshots/social-preview.png" alt="pktLog — Search every device's syslog in one place" width="900">
+</p>
+
+<p align="center">
   <img src="frontend/public/logos/lockup-256h.png" alt="pktLog" height="64">
 </p>
 
@@ -20,6 +24,14 @@ Syslog ingest management and visualization platform. Receives syslog data over U
 Part of the **[pktSuite](#the-pkt-suite)** platform (SSO with pktHub/pktFlow via a shared `suite_token`).
 
 ---
+
+## Why pktLog
+
+- **Syslog from everywhere.** Receives syslog over UDP, TCP and TLS and stores events in ClickHouse.
+- **Search and report.** A React UI for search, alerting and reporting across every device on your network.
+- **Alerts where you work.** Alert rules dispatch to six channels, and rules can be provisioned in bulk by CSV import and export.
+- **Part of a suite.** One of ten self-hosted pkt apps that share one architecture (FastAPI + React), `admin` / `analyst` / `viewer` roles and a suite token. pktLog installs and runs standalone, so take only what you need.
+- **Self-hosted, source-available.** An installer script that sets up ClickHouse and a systemd service on Ubuntu Server 22.04/24.04 LTS. Sign in with local accounts or SAML 2.0 SSO. Free for noncommercial use under the [PolyForm Noncommercial License](LICENSE).
 
 ## Quick Start
 
