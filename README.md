@@ -5,19 +5,12 @@
 </p>
 
 <p align="center">
+  <a href="docs/SCREENSHOTS.md"><strong>View screenshots</strong></a>
+</p>
+
+<p align="center">
   <img src="frontend/public/logos/lockup-256h.png" alt="pktLog" height="64">
 </p>
-
-<p align="center">
-  <img src="docs/screenshots/dashboard.webp" alt="pktLog — Dashboard" width="900">
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/explorer.webp" alt="pktLog — Log explorer" width="430">
-  <img src="docs/screenshots/alerts.webp" alt="pktLog — Alerts" width="430">
-</p>
-
-<p align="center"><sub>Dashboard &middot; Log explorer &middot; Alerts</sub></p>
 
 Syslog ingest management and visualization platform. Receives syslog data over UDP/TCP, stores events in ClickHouse, and provides a React UI for search, alerting, and reporting.
 
