@@ -141,10 +141,16 @@ async def lifespan(app: FastAPI):
     listener = get_listener()
     await listener.start()
 
+    import asyncio
+    from app.self_update import run_forever as self_update_run_forever
+    self_update_task = asyncio.create_task(self_update_run_forever())
+    app.state.self_update_task = self_update_task
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     log.info("pktLog shutting down")
+    self_update_task.cancel()
     await listener.stop()
     await engine.stop()
     await cleanup.stop()
