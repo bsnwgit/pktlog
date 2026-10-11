@@ -1,4 +1,5 @@
 import { ReactNode, useState, useEffect } from 'react'
+import UpdateBanner from './UpdateBanner'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../store/auth'
 import { api } from '../api/client'
@@ -316,6 +317,7 @@ export default function Layout({ children, chromeless = false }: { children: Rea
           </div>
         </header>
 
+        <UpdateBanner />
         <main className="flex-1 overflow-auto p-5">
           {managedMode && (
         <div className="flex-shrink-0 bg-orange-950/30 border-b border-orange-800/30 px-5 py-1.5 flex items-center gap-2">
