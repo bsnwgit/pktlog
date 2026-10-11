@@ -34,6 +34,11 @@ _INSERT_COLS = """
 """
 
 
+# One row per (collector_ip, collector_name), kept current by a materialized
+# view on syslog_events. See ClickHouseBackend._ensure_last_seen_summary.
+_LAST_SEEN_TABLE = "collector_last_seen_agg"
+
+
 # Reads the day count back out of a table's TTL clause. ClickHouse normalises
 # `INTERVAL 90 DAY` to `toIntervalDay(90)` in the stored CREATE query, but a
 # table created straight from clickhouse/schema.sql on an older server can
@@ -62,6 +67,7 @@ class ClickHouseBackend(StorageBackend):
     def __init__(self):
         self._client: Optional[Client] = None
         self._lock = threading.Lock()
+        self._last_seen_summary = False
 
     # ── Connection ────────────────────────────────────────────────────────────
 
@@ -104,6 +110,66 @@ class ClickHouseBackend(StorageBackend):
         log.info("ClickHouse connected: %s:%s/%s",
                  settings.clickhouse_host, settings.clickhouse_port,
                  settings.clickhouse_database)
+        await asyncio.to_thread(self._ensure_last_seen_summary)
+
+    def _ensure_last_seen_summary(self) -> None:
+        """Create the per-collector last-seen summary, backfilling it once.
+
+        collector_last_seen() used to GROUP BY the whole of syslog_events —
+        a full scan, ~9s at 350M rows, and the dashboard, the data-gap alert
+        and the widgets all pay it. The materialized view keeps one row per
+        collector current as events arrive, so the read is a few rows.
+
+        Order matters: the view is created *last*. If the process dies during
+        the backfill the view is still absent, so the next start redoes it;
+        creating the view first would leave a half-filled table that looks
+        finished. Events landing between the backfill and the view are
+        covered by the short catch-up insert (max() makes re-reading safe).
+        On any failure the read path keeps using the full scan.
+        """
+        try:
+            have_view = self._execute(
+                "SELECT count() FROM system.tables "
+                "WHERE database = %(db)s AND name = 'collector_last_seen_mv'",
+                {"db": settings.clickhouse_database},
+            )[0][0] > 0
+            if not have_view:
+                log.info("ClickHouse: building collector last-seen summary (one-time backfill)")
+                self._execute(f"""
+                    CREATE TABLE IF NOT EXISTS {_LAST_SEEN_TABLE}
+                    (
+                        collector_ip    String,
+                        collector_name  LowCardinality(String),
+                        last_seen       SimpleAggregateFunction(max, DateTime64(3))
+                    )
+                    ENGINE = AggregatingMergeTree
+                    ORDER BY (collector_ip, collector_name)
+                """)
+                self._execute(f"""
+                    INSERT INTO {_LAST_SEEN_TABLE}
+                    SELECT collector_ip, collector_name, max(timestamp)
+                    FROM syslog_events
+                    GROUP BY collector_ip, collector_name
+                """)
+                self._execute(f"""
+                    CREATE MATERIALIZED VIEW IF NOT EXISTS collector_last_seen_mv
+                    TO {_LAST_SEEN_TABLE} AS
+                    SELECT collector_ip, collector_name, max(timestamp) AS last_seen
+                    FROM syslog_events
+                    GROUP BY collector_ip, collector_name
+                """)
+                self._execute(f"""
+                    INSERT INTO {_LAST_SEEN_TABLE}
+                    SELECT collector_ip, collector_name, max(timestamp)
+                    FROM syslog_events
+                    WHERE timestamp >= now() - INTERVAL 1 HOUR
+                    GROUP BY collector_ip, collector_name
+                """)
+                log.info("ClickHouse: collector last-seen summary ready")
+            self._last_seen_summary = True
+        except Exception as e:
+            self._last_seen_summary = False
+            log.warning("ClickHouse: last-seen summary unavailable, using full scan: %s", e)
 
     async def close(self) -> None:
         if self._client:
@@ -275,12 +341,20 @@ class ClickHouseBackend(StorageBackend):
 
     async def collector_last_seen(self) -> list[dict]:
         """Last timestamp per collector — used for data-gap alerts."""
-        q = """
-            SELECT collector_ip, collector_name, max(timestamp) AS last_seen
-            FROM syslog_events
-            GROUP BY collector_ip, collector_name
-            ORDER BY last_seen DESC
-        """
+        if self._last_seen_summary:
+            q = f"""
+                SELECT collector_ip, collector_name, max(last_seen) AS last_seen
+                FROM {_LAST_SEEN_TABLE}
+                GROUP BY collector_ip, collector_name
+                ORDER BY last_seen DESC
+            """
+        else:
+            q = """
+                SELECT collector_ip, collector_name, max(timestamp) AS last_seen
+                FROM syslog_events
+                GROUP BY collector_ip, collector_name
+                ORDER BY last_seen DESC
+            """
         rows = await asyncio.to_thread(self._execute, q)
         return [{"collector_ip": r[0], "collector_name": r[1], "last_seen": r[2].isoformat() + "Z"} for r in rows]
 
